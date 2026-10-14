@@ -210,8 +210,15 @@ Identification regression tests
 已有任务目录缺少测试、未收集到测试或测试失败时，CI 失败。CI 不执行完整展示 notebook；
 原有 compatibility smoke test 仍会在临时目录训练极小模型。
 
+<<<<<<< HEAD
 建议在 GitHub 的 `main` branch protection 中把该 CI 设为 required status check。CI 只检查
 代码与接口回归，不替代 theorem / assumptions 的人工 review。
+=======
+`main` 已启用分支保护：PR 必须获得代码负责人批准、通过 GitHub Actions 的 `tests` 检查、
+与最新主分支同步并解决审核对话后才能合并。新代码提交后需要重新批准；禁止学生强制推送和删除主分支。
+管理员保留绕过保护的权限，自己的改动无需他人批准。具体流程见 `CONTRIBUTING.md`。
+CI 只检查代码与接口回归，不替代 theorem / assumptions 的人工 review。
+>>>>>>> 7d9419df364a87346b58e6bff96499bdafb36a66
 
 ## 8. Student contribution workflow
 
