@@ -431,6 +431,14 @@ def reconcile(first, second, fields):
         raise ValueError('FOCUSED_AUDIT_EXACT_COVERAGE_REQUIRED')
     retained=[i for i in first['issues'] if i['kind']!='READING_ERROR']
     issues=retained+deepcopy(second['issues'])
+    # A focused fidelity check may locate an additional error without resolving
+    # the first check's ownership concern. Preserve both for bounded recovery;
+    # neither diagnostic approves or changes the candidate.
+    first_by_field={i['field']:i for i in first['issues']}
+    for issue in issues:
+        prior=first_by_field.get(issue['field'],{})
+        if issue['kind']=='READING_ERROR' and prior.get('restriction_role') in ('ALREADY_REPRESENTED','NOT_A_CONDITION'):
+            issue['prior_restriction_role']=prior['restriction_role']
     kinds={i['kind'] for i in issues}
     return dict(verdict='READING_ERROR' if 'READING_ERROR' in kinds else 'NEEDS_CLARIFICATION' if kinds else 'PASS',
         scientific_approval=False,issues=issues,

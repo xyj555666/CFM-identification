@@ -36,7 +36,11 @@ def prepare(run, *, allow_busy=False, audit_findings=None):
                 return {'available':False,'items':[], 'reason':'AUDIT_RECHECK_NOT_LOCATED'}
             if path in seen:return {'available':False,'items':[], 'reason':'DUPLICATE_AUDIT_RECHECK_FIELD'}
             seen.add(path)
-            located.append((path,dict(text=finding['reason'],source_ids=cited)))
+            ownership=finding.get('restriction_role',finding.get('prior_restriction_role'))
+            duplicate=(path.startswith('/additional_restrictions/') and
+                       ownership in ('ALREADY_REPRESENTED','NOT_A_CONDITION'))
+            located.append((path,dict(text=finding['reason'],source_ids=cited,
+                recheck_kind='POSSIBLE_DUPLICATION' if duplicate else 'OMITTED_OR_MISREAD')))
         if not located:return {'available':False,'items':[]}
     for path,item in located:
         source_ids=list(dict.fromkeys(aliases[ref]['source_id'] for ref in item.get('source_ids',[]) if ref in aliases))
@@ -45,7 +49,7 @@ def prepare(run, *, allow_busy=False, audit_findings=None):
         quotes=[sheet['source_catalog'][sid].get('text','') for sid in source_ids]
         items.append(dict(path=path,text=item.get('text',''),quotes=quotes))
         issues.append(dict(field_path=path,
-                           kind='OMITTED_OR_MISREAD' if audit_findings is not None else 'POSSIBLE_DUPLICATION',
+                           kind=item.get('recheck_kind','POSSIBLE_DUPLICATION'),
                            source_ids=source_ids,
                            reason=('独立模型复核定位：'+item['text']) if audit_findings is not None else
                            '请求对照原材料核对该条说明的字段归属或遗漏；不指定替换值，不要求删除真实限制。'))

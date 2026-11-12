@@ -1,4 +1,5 @@
 """Presentation only: summarize current evidence without granting any review."""
+from .note_review import released_for_plan
 
 
 def value(item):
@@ -130,7 +131,7 @@ def summarize(run):
             target.get('shared_outcome_and_context',{}).get('value') is not True):
         rejected.append('比较方向、共同评价名单、加权方式或共同结果背景尚未对齐。')
     # Do not hide conditions that this small presentation mapper cannot explain.
-    if facts.get('additional_restrictions') or facts.get('unresolved'):
+    if facts.get('additional_restrictions') or (facts.get('unresolved') and not released_for_plan(run.plan or {})):
         rejected.append('模型标记了额外说明或待解决问题，请先核对这些说明；这不等于业务已被判定缺条件。')
     if run.review_kind in ('source','science','data'):
         if not supported_facts(facts):

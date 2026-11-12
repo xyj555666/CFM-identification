@@ -44,6 +44,20 @@ def parse(entry, raw):
 def field_constraints(entry, paths):
     from .. import network_effect_conditioning
     rows = _field_constraints(entry, paths)
+    # A located recheck names a list item, not necessarily its parent field.
+    # Take ownership rules from the actual request Schema for this profile;
+    # do not substitute another reader's Skill or a reviewer's desired answer.
+    import json
+    request = entry['request']
+    body = json.JSONDecoder().raw_decode(request['user'].lstrip())[0]
+    properties = body['output_schema']['properties']
+    for path in paths:
+        for name in ('information', 'additional_restrictions', 'unresolved'):
+            root = '/' + name
+            if path == '' or path == root or path.startswith(root + '/'):
+                description = properties.get(name, {}).get('description')
+                if description:
+                    rows.append(dict(field_path=path, description=description))
     if network_effect_conditioning.has_explicit_context(entry.get('reviewed_target_context')):
         rows += network_effect_conditioning.field_constraints(paths)
     return rows

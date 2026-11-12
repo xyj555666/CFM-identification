@@ -46,7 +46,9 @@ function harness(view) {
   vm.runInContext(app.replace(/init\(\);\s*$/, ''), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../input-files.js'),'utf8'),context);
   const terms=JSON.parse(fs.readFileSync(path.join(__dirname,'../condition_terms.json'),'utf8'));
-  context.catalog=Object.fromEntries(Object.entries(terms).map(([key,[term,label,category]])=>[key,{key,term,label,category,text:label}]));
+  const help=JSON.parse(fs.readFileSync(path.join(__dirname,'../condition_explanations.json'),'utf8'));
+  assert.deepEqual(Object.keys(help).sort(),Object.keys(terms).sort());
+  context.catalog=Object.fromEntries(Object.entries(terms).map(([key,[term,label,category]])=>[key,{key,term,label,category,text:label,explanation:help[key]}]));
   vm.runInContext('conditionTerms=catalog;',context);
   context.fixture = clone(view);
   vm.runInContext('current=fixture; runId=fixture.id; renderRun(current);', context);
@@ -98,8 +100,8 @@ if (require.main === module) {
     const view=fixture();view.review_kind=null;view.automatic_review=true;
     view.result={state:'READING_RECHECK_REQUIRED',reason_code:'COMPACT_SCHEMA_REJECTED'};
     const html=harness(view).element('#result').innerHTML;
-    assert.doesNotMatch(html,/业务解释经过模型自动复核/);
-    assert.match(html,/尚未得到通过证书重放/);
+    assert.doesNotMatch(html,/业务解释经过模型自动复核|问题已核对/);
+    assert.match(html,/尚未得到通过验证/);
   });
   test('fixed-policy R1b uses three cards and one explicit confirmation; missing science still blocks',async()=>{
     const view=fixture('science');view.automatic_review=true;
@@ -175,12 +177,12 @@ if (require.main === module) {
   test('pending scientific adoption is a visible question, never a background approval',()=>{
     const view=fixture('science');view.automatic_review=true;
     const h=harness(view);assert.equal(h.element('#review').hidden,false);assert.equal(h.requests.length,0);
-    assert.match(h.element('#review-title').textContent,/可以吗/);
+    assert.match(h.element('#review-title').textContent,/请确认本次采用的假设/);
   });
   test('extra notes are shown with their actual content, not only a generic error',()=>{
     const view=fixture('source');view.plan.reading_candidate.additional_restrictions=[{text:'仅说明资料范围',source_ids:[]}];
     const h=harness(view);assert.match(h.element('#review-issues').innerHTML,/仅说明资料范围/);
-    assert.match(h.element('#review-issues').innerHTML,/这不等于你的材料缺少条件/);
+    assert.match(h.element('#review-issues').innerHTML,/未必是材料缺失/);
     assert.equal(h.element('#request-recheck').disabled,true); // old server: no invented action
   });
   for (const kind of ['query','source','science','data']) test(`legacy ${kind}: three cards, one action, unchanged bound records`,async()=>{
@@ -344,6 +346,10 @@ test('result conditions use executed evidence and never example-authored default
  const h=harness(fixture());h.context.r={state:'POINT',independent_replay:true,certificate:{assumptions_used:['consistency','full_vector_randomization']}};
  const html=vm.runInContext('resultHTML(r,null,["预写答案：无混杂、无干扰"])',h.context);
  assert.match(html,/Consistency/);assert.match(html,/Randomization/);assert.doesNotMatch(html,/预写答案|No interference|Conditional exchangeability/);
+ assert.match(html,/这些假设在本题中是什么意思/);assert.match(html,/不要求各对象分别独立抽签/);assert.match(html,/本次记录的正式条件/);
+ h.context.unknown={key:'unregistered',text:'仅在本周适用',category:'science'};
+ assert.match(vm.runInContext('conditionDetailHTML(unknown)',h.context),/暂无简明解释/);
+ assert.doesNotMatch(vm.runInContext('conditionDetailHTML(unknown)',h.context),/随机分配|Randomization/);
  h.context.r.certificate={source_batch_sha256:'x'};h.context.r.condition_record={origin:'EXECUTED_CERTIFICATES',source_batch_sha256:'different',keys:['consistency']};
  assert.equal(vm.runInContext('resultConditions(r).length',h.context),0);
  h.context.r.condition_record.source_batch_sha256='x';assert.equal(vm.runInContext('resultConditions(r)[0].term',h.context),'Consistency');
@@ -378,4 +384,23 @@ test('information choice cannot skip an entry, reuse stale review, or overwrite 
   const v=informationFixture();mutate(v);const h=harness(v);
   assert.throws(()=>vm.runInContext('informationRecords(current,{[current.id+":"+current.review_sheets.information.binding_sha256]:"总体均值表"})',h.context));
  }
+});
+
+test('clarifications ask for business facts without accepting assumptions or changing results',()=>{
+ const h=harness(fixture());
+ h.context.question='请明确比较两端的自身处理、同伴状态及相减方向。';
+ assert.match(vm.runInContext('clarificationText(question,{})',h.context),/本人做什么、相关的人或单位做什么/);
+ h.context.question='请说明理论识别可以使用的总体观测信息及覆盖范围；有限样本不能代替。';
+ assert.match(vm.runInContext('clarificationText(question,{})',h.context),/只有这一次的记录/);
+ assert.doesNotMatch(vm.runInContext('clarificationText(question,{})',h.context),/请提供精确总体/);
+ h.context.question='本次计算需要以下条件，请说明是否采用：“实际观察结果对应实际完整安排下的潜在结果”。不知道或尚未决定也可以说明。';
+ assert.match(vm.runInContext('clarificationText(question,{})',h.context),/不采用.*尚未决定/);
+ h.context.question='请说明甲店与乙店是否在同一天接种。';
+ assert.equal(vm.runInContext('clarificationText(question,{})',h.context),h.context.question);
+ h.context.pending={busy:false,user_question:{items:[{question:'这句话是否表示尚未决定？',source_texts:['尚未决定<script>bad()</script>']}]},result:{state:'NEEDS_INPUT',backend_called:false}};
+ const before=JSON.stringify(h.context.pending);vm.runInContext('renderClarification(pending)',h.context);
+ assert.equal(JSON.stringify(h.context.pending),before);
+ assert.match(h.element('#clarification-questions').innerHTML,/需要说明的原文/);
+ assert.match(h.element('#clarification-questions').innerHTML,/&lt;script&gt;/);
+ assert.doesNotMatch(h.element('#clarification-questions').innerHTML,/<script>/);
 });

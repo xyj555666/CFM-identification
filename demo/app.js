@@ -1,9 +1,10 @@
 'use strict';
 const $=s=>document.querySelector(s), esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let csrf='', examples=[], selected=null, runId=null, timer=null, current=null, reviewSignature='', records={}, rowBindings=[], reviewSubmitting=false, querySubmitting=false, serviceFeatures=[], conditionTerms={};
-const names={POINT:'可点识别',PARTIAL:'得到识别界限',NEEDS_INPUT:'需要补充材料',CHECK_BLOCKED:'审核未通过',REVIEW_REQUIRED:'等待研究者审核',READING_RECHECK_REQUIRED:'读取需要复核',UNSUPPORTED:'当前方法未覆盖',ADAPTER_NOT_CONNECTED:'当前入口未接通',NO_ADAPTER:'估计目标未接通',ESTIMATED:'估计已完成',FAILED:'本次执行未完成'};
-const stageNames={PREPARING:'整理输入',READING:'读取业务',SELECT_QUERY:'选择问题',REVIEW_REQUIRED:'等待核对',READING_FACTS:'读取事实',IDENTIFYING:'识别与证书重放',ESTIMATING:'效应估计',RESULT:'执行结束',STOPPED:'本阶段停止'};
-const labels={query:'业务目标与研究结构',source:'事实及来源',notes:'备注与缺项',information:'总体信息来源',plan:'目标与方法计划',data:'估计数据准入',binding:'数据与研究变量对应',science:'识别条件',field_role:'字段归属',value_state:'取值与确定程度',source_coverage:'引用是否完整',assignment_outcome_independence:'完整分配与潜在结果独立',consistency:'观察结果与实际完整安排一致',finite_conditional_means:'条件均值存在且有限',network_fixed_before_treatment:'网络在处理前固定',fixed_conditioning_matches_reviewed_query:'固定背景与已确认问题一致',conditioning_is_only_fixed_pretreatment_study_background:'背景仅限固定处理前条件',node_feature_order_and_original_outcome_scale:'节点、特征顺序及原始结果尺度一致',data_population_treatment_outcome_and_fixed_context_match:'数据与目标的对象、变量和背景一致',outcome_observation_ignorable_for_estimator:'结果观测机制符合估计要求',preprocessing_and_frozen_model_applicability_reviewed:'已核对预处理和冻结模型适用范围'};
+let providerCatalog={},savedConnection=null,providerSettingsDirty=false,displayedConnection='',providerTouched=false;
+const names={POINT:'可点识别',PARTIAL:'可确定上下界',NEEDS_INPUT:'需要补充信息',CHECK_BLOCKED:'审核未通过',REVIEW_REQUIRED:'等待研究者审核',READING_RECHECK_REQUIRED:'读取需要复核',UNSUPPORTED:'当前方法未覆盖',ADAPTER_NOT_CONNECTED:'此类问题暂未接通',NO_ADAPTER:'估计目标未接通',ESTIMATED:'估计已完成',FAILED:'本次执行未完成'};
+const stageNames={PREPARING:'整理输入',READING:'读取业务',SELECT_QUERY:'选择问题',REVIEW_REQUIRED:'等待核对',READING_FACTS:'读取事实',IDENTIFYING:'计算并验证识别结果',ESTIMATING:'效应估计',RESULT:'执行结束',STOPPED:'本次分析已停止'};
+const labels={query:'业务目标与研究结构',source:'事实及来源',notes:'备注与缺项',information:'总体信息来源',plan:'目标与方法计划',data:'估计数据检查',binding:'数据与研究变量对应',science:'识别条件',field_role:'字段归属',value_state:'取值与确定程度',source_coverage:'引用是否完整',assignment_outcome_independence:'完整分配与潜在结果独立',consistency:'观察结果与实际完整安排一致',finite_conditional_means:'条件均值存在且有限',network_fixed_before_treatment:'网络在处理前固定',fixed_conditioning_matches_reviewed_query:'固定背景与已确认问题一致',conditioning_is_only_fixed_pretreatment_study_background:'背景仅限固定处理前条件',node_feature_order_and_original_outcome_scale:'节点、特征顺序及原始结果尺度一致',data_population_treatment_outcome_and_fixed_context_match:'数据与目标的对象、变量和背景一致',outcome_observation_ignorable_for_estimator:'结果观测机制符合估计要求',preprocessing_and_frozen_model_applicability_reviewed:'已核对预处理和冻结模型适用范围'};
 const choiceLabels={PENDING:'待核对',ACCEPTED:'确认',REJECTED:'拒绝',MATERIAL_GAP:'原材料确实缺项',READING_ERROR:'模型读取错误',NONBLOCKING_COMMENT:'不阻断的说明',DEFER_TO_MATHEMATICS:'交由数学检查',REPRESENTED:'已在事实中保留',SOURCE_STATES_MISSING:'原文明示缺失',OMITTED_ESTIMATION_NOTE:'遗漏的纯估计说明'};
 Object.assign(labels,{
  selected_query_matches_native_target:'将要计算的目标，是否仍是用户提出的问题？',
@@ -28,22 +29,69 @@ async function api(path,body){const res=await fetch(path,{method:body===undefine
 function message(text,error=false){$('#input-message').textContent=text;$('#input-message').className='message'+(error?' error':'');}
 function syncProviderOptions(h){
  const select=$('#provider'), providers=h.providers||{}, prior=select.value;
- const html=Object.entries(providers).map(([id,p])=>`<option value="${esc(id)}">${esc(p.model)}</option>`).join('');
+ providerCatalog=providers;savedConnection=h;
+ const html=Object.entries(providers).map(([id,p])=>`<option value="${esc(id)}">${esc(p.label||p.model||id)}</option>`).join('');
  if(select.innerHTML!==html)select.innerHTML=html;
  const configured=h.configured&&providers[h.provider]?h.provider:null;
- select.value=(providers[prior]?prior:null) || configured || Object.keys(providers)[0] || '';
+ select.value=(!providerTouched&&configured) || (providers[prior]?prior:null) || configured || Object.keys(providers)[0] || '';
 }
-async function health(){const h=await api('/api/health');csrf=h.csrf;serviceFeatures=h.features||[];conditionTerms=h.condition_terms||{};syncProviderOptions(h);$('#connection').textContent='本地服务已连接';$('#key-status').textContent=h.configured?'已配置 '+h.providers[h.provider].model:'尚未配置 API Key';if(!h.configured)$('#api-settings').open=true;return h;}
+function connectionFields(force=false){
+ const id=$('#provider').value,p=providerCatalog[id]||{},h=savedConnection||{};
+ const config=h.configured&&h.provider===id?{...p,...h.model_settings}:p;
+ const signature=id+JSON.stringify(config);
+ if(force||(!providerSettingsDirty&&displayedConnection!==signature)){
+  const models=p.models||[p.model].filter(Boolean);
+  $('#model-id').innerHTML=models.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')+'<option value="__custom__">其他模型，自行填写…</option>';
+  $('#model-id').value=models.includes(config.model)?config.model:'__custom__';
+  $('#custom-model-id').value=models.includes(config.model)?'':config.model||'';
+  $('#custom-model-field').hidden=$('#model-id').value!=='__custom__';
+  $('#model-base-url').value=config.base_url||'';
+  $('#model-workspace').value=config.workspace_id||'';
+  $('#output-token-parameter').value=config.output_token_parameter||'max_tokens';
+  $('#model-json-mode').value=String(config.json_mode!==false);displayedConnection=signature;
+ }
+ $('#provider-note').textContent=p.note||'';$('#provider-verification').textContent=p.verification||'';
+ const docs=$('#provider-docs');docs.hidden=!/^https:\/\//.test(p.docs_url||'');docs.href=docs.hidden?'':p.docs_url;
+ $('#workspace-field').hidden=id!=='claude';$('#custom-protocol').hidden=id!=='custom';
+}
+function connectionInput(){
+ const id=$('#provider').value;
+ return {model:($('#model-id').value==='__custom__'?$('#custom-model-id').value:$('#model-id').value).trim(),base_url:$('#model-base-url').value.trim().replace(/\/+$/,''),
+  ...(id==='claude'?{workspace_id:$('#model-workspace').value.trim()}:{}),
+  ...(id==='custom'?{output_token_parameter:$('#output-token-parameter').value,json_mode:$('#model-json-mode').value==='true'}:{})};
+}
+function connectionError(error){
+ const labels={MODEL_ID_REQUIRED:'请填写所选平台已开通的模型 ID。',MODEL_BASE_URL_INVALID:'请填写 HTTPS Base URL，不含密钥、查询参数或末尾的 /chat/completions。',PROVIDER_ENDPOINT_MISMATCH:'此地址不属于所选服务。使用中转服务请选择 SUFE 或“其他 OpenAI 兼容服务”。',MODEL_WORKSPACE_INVALID:'请检查 Claude 工作空间 ID。',MODEL_SETTINGS_INVALID:'模型连接参数格式不正确。',PROVIDER_PROTOCOL_MISMATCH:'所选官方接口的协议参数不匹配。',RUN_ALREADY_BUSY:'当前任务正在运行，完成后再修改模型连接。'};
+ return labels[error.message]||error.message;
+}
+async function health(){const h=await api('/api/health');csrf=h.csrf;serviceFeatures=h.features||[];conditionTerms=h.condition_terms||{};syncProviderOptions(h);connectionFields();$('#connection').textContent='本地服务已连接';$('#key-status').textContent=h.configured?'已保存 '+(h.providers[h.provider].label||h.provider)+' · '+(h.model_settings?.model||h.providers[h.provider].model):'尚未配置 API Key';if(!h.configured)$('#api-settings').open=true;return h;}
 function claim(x){if(x===null||x===undefined)return '未提供';if(typeof x==='string')return x==='UNKNOWN'?'原文未提供／保持未知':x;if(x.value!==undefined)return x.value??x.reason??x.state;if(x.reason)return x.reason;if(x.kind&&Object.keys(x).length===1)return x.kind;return JSON.stringify(x,null,2);}
 function selects(options,value,attrs=''){return `<select ${attrs}>${options.map(x=>`<option value="${esc(x)}" ${x===value?'selected':''}>${esc(choiceLabels[x]||x)}</option>`).join('')}</select>`;}
 function renderExamples(){
- const card=(x,i)=>`<article class="example"><span class="tag">${esc(x.badge)}</span><h3>${esc(x.title)}</h3><p>${esc(x.description)}</p>${x.scope_note?`<p class="muted">${esc(x.scope_note)}</p>`:''}${x.citation&&/^https:\/\//.test(x.citation.url)?`<p><a href="${esc(x.citation.url)}" target="_blank" rel="noopener noreferrer">${esc(x.citation.label)}</a></p>`:''}<div class="example-actions"><button class="text-button" data-load="${i}">载入并修改 →</button><button class="text-button" data-view="${i}">${x.saved||x.saved_runs?.length?'看验收记录':'看输入材料'}</button></div></article>`;
+ const card=(x,i)=>`<article class="example"><span class="tag">${esc(x.badge)}</span><h3>${esc(x.title)}</h3><p>${esc(x.description)}</p>${x.scope_note?`<p class="muted">${esc(x.scope_note)}</p>`:''}${x.citation&&/^https:\/\//.test(x.citation.url)?`<p><a href="${esc(x.citation.url)}" target="_blank" rel="noopener noreferrer">${esc(x.citation.label)}</a></p>`:''}<div class="example-actions"><button class="text-button" data-load="${i}">载入并修改 →</button><button class="text-button" data-view="${i}">${x.saved||x.saved_runs?.length?'查看历史结果':'看输入材料'}</button></div></article>`;
  const main=examples.map((x,i)=>({x,i})).filter(({x})=>x.featured!==false).sort((a,b)=>(a.x.display_order??99)-(b.x.display_order??99));
  const extra=examples.map((x,i)=>({x,i})).filter(({x})=>x.featured===false);
  $('#examples').innerHTML=main.map(({x,i})=>card(x,i)).join('')+(extra.length?`<details style="grid-column:1/-1"><summary>基础例子与缺条件追问（${extra.length} 项）</summary><p class="muted">缺条件例子用于演示追问，预期不会直接给出识别公式。历史记录不保证本次模型读取成功。</p>${extra.map(({x,i})=>card(x,i)).join('')}</details>`:'');
  $('#examples').onclick=e=>{if(e.target.dataset.load!==undefined)loadExample(examples[+e.target.dataset.load]);if(e.target.dataset.view!==undefined)showExample(examples[+e.target.dataset.view]);};
 }
-function loadExample(x){selected=x;$('#question').value=x.case.business_question;$('#synthetic').checked=true;$('#selected-example').hidden=false;$('#selected-example').innerHTML=`<div class="selected">已载入「${esc(x.title)}」及 ${x.case.sources.length} 份配套说明。可以修改问题，系统将重新读取。</div>`;$('#example-documents').hidden=false;$('#example-sources').innerHTML=x.case.sources.map(s=>`<article class="source-doc" data-source="${esc(s.source_id)}"><label><input type="checkbox" class="include-source" checked>使用这份说明：${esc(s.label||s.source_id)}</label><textarea rows="4" class="source-edit">${esc(s.text)}</textarea></article>`).join('');message('示例材料已载入；“看验收记录”与“开始读取业务”是两个不同操作。');$('#question').focus();}
+function exampleMaterialsHTML(x){
+ const files=x.network_files;
+ const fileHTML=files?'<section class="example-file-material"><h4>随示例载入的文件</h4><label><input type="checkbox" id="use-example-network" checked>使用这两份关系文件</label><p>'+files.files.map(f=>`<a href="/api/example-file?id=${encodeURIComponent(x.id)}&role=${encodeURIComponent(f.role)}" download>${esc(f.label)}（CSV）</a>`).join(' · ')+'</p><p class="muted">可用 Excel 打开。名册每行一家店；关系表每行两家相互合作的店。上传自己的对象表和关系表后，本次改用上传的文件。</p></section>':'';
+ const sourceHTML=s=>{
+  const optional=(x.reference_only_sources||[]).includes(s.source_id);
+  const field=`<textarea rows="4" class="source-edit" aria-label="${esc(s.label||s.source_id)}">${esc(s.text)}</textarea>`;
+  return `<article class="source-doc" data-source="${esc(s.source_id)}"><label><input type="checkbox" class="include-source" ${optional?'':'checked'}>${esc(s.label||s.source_id)}${optional?'（可选）':''}</label>`+
+   ((x.collapsed_source_ids||[]).includes(s.source_id)?`<details class="source-table"><summary>展开完整关系表并编辑</summary>${field}</details>`:field)+'</article>';
+ };
+ const shown=new Set();
+ const groups=(x.material_groups||[]).map(group=>{
+  const sources=x.case.sources.filter(s=>group.source_ids.includes(s.source_id)&&!shown.has(s.source_id));
+  sources.forEach(s=>shown.add(s.source_id));
+  return sources.length?`<details class="material-group"><summary>${esc(group.title)}</summary><p class="muted">${esc(group.description)}</p>${sources.map(sourceHTML).join('')}</details>`:'';
+ }).join('');
+ return fileHTML+'<p class="muted">下面是这道示例的配套说明，可按实际情况修改。分析前提需要另行确认。</p>'+groups+x.case.sources.filter(s=>!shown.has(s.source_id)).map(sourceHTML).join('');
+}
+function loadExample(x){selected=x;$('#question').value=x.case.business_question;$('#synthetic').checked=true;$('#selected-example').hidden=false;$('#selected-example').innerHTML=`<div class="selected">已载入「${esc(x.title)}」及配套研究材料。可以修改问题，系统将重新读取。</div>`;$('#example-documents').hidden=false;$('#example-sources').innerHTML=exampleMaterialsHTML(x);if(x.network_files&&!$('#network-nodes').files.length&&!$('#network-edges').files.length){const d=x.network_files.declaration;$('#network-kind').value=d.kind;$('#network-completeness').value=d.completeness;$('#network-description').value=d.description;}message('已载入示例。点击“开始分析”后调用模型。');$('#question').focus();}
 function clearInput(){selected=null;$('#question').value='';$('#documents').value='';$('#network-nodes').value='';$('#network-edges').value='';$('#network-description').value='';$('#network-kind').value='';$('#network-completeness').value='UNKNOWN';resetTableInputs();$('#file-list').innerHTML='';$('#selected-example').hidden=true;$('#example-documents').hidden=true;$('#synthetic').checked=false;message('');}
 $('#question').oninput=()=>{
  if(!selected)return;
@@ -54,18 +102,21 @@ $('#question').oninput=()=>{
  if(changed)$('#check-example-materials').onclick=()=>{$('#example-documents').open=true;$('#example-documents').scrollIntoView({behavior:'smooth',block:'start'});};
 };
 function literatureComparisonHTML(x){const a=x.literature_comparison;if(!a)return '';return `<details class="optional literature-comparison"><summary>改编来源与公式依据：${esc(a.label)}</summary><p>${esc(a.verdict)}</p><ul>${a.checks.map(t=>`<li>${esc(t)}</li>`).join('')}</ul><p class="muted">${esc(a.execution_boundary)}</p></details>`;}
-function showExample(x){$('#saved').hidden=false;$('#saved-title').textContent=x.title;const body=x.saved_runs?.length?`<p>${esc(x.verification_note)}</p>`+x.saved_runs.map(r=>`<h3>${esc(r.title)}</h3>`+resultHTML(r.result,null)).join(''):x.saved?resultHTML(x.saved,null):`<p>${esc(x.case.business_question)}</p><p class="muted">${esc(x.verification_note||'该示例用于现场重新读取。')}</p>`;$('#saved-result').innerHTML=literatureComparisonHTML(x)+body;$('#saved').scrollIntoView({behavior:'smooth',block:'start'});}
+function showExample(x){$('#saved').hidden=false;$('#saved-title').textContent=x.title;const body=x.saved_runs?.length?`<details class="optional"><summary>历史运行说明</summary><p>${esc(x.verification_note)}</p></details>`+x.saved_runs.map(r=>`<h3>${esc(r.title)}</h3>`+resultHTML(r.result,null)).join(''):x.saved?resultHTML(x.saved,null):`<p>${esc(x.case.business_question)}</p><p class="muted">${esc(x.verification_note||'该示例用于现场重新读取。')}</p>`;$('#saved-result').innerHTML=literatureComparisonHTML(x)+body;$('#saved').scrollIntoView({behavior:'smooth',block:'start'});}
 async function upload(file,role){const bytes=new Uint8Array(await file.arrayBuffer());let parts=[];for(let i=0;i<bytes.length;i+=32768)parts.push(String.fromCharCode(...bytes.subarray(i,i+32768)));return {name:file.name,role,content:btoa(parts.join(''))};}
 $('#documents').onchange=()=>{$('#file-list').innerHTML=Array.from($('#documents').files).map(f=>`<span class="file-chip">${esc(f.name)} · ${(f.size/1024).toFixed(0)} KB</span>`).join('');};
 $('#key-file').onchange=async()=>{let text=await $('#key-file').files[0]?.text();if(text!==undefined){$('#api-key').value=text.trim();text=null;$('#key-file').value='';$('#key-status').textContent='密钥已导入，请保存模型设置';}};
-$('#save-key').onclick=async()=>{let key=$('#api-key').value.trim();$('#api-key').value='';try{await api('/api/credentials',{provider:$('#provider').value,key});key=null;await health();$('#api-settings').open=false;message('模型连接参数已保存到本机内存；开始读取时才发出 API 请求。');}catch(e){key=null;message(e.message,true);}};
+$('#save-key').onclick=async()=>{let key=$('#api-key').value.trim();$('#api-key').value='';try{const provider=$('#provider').value,settings=connectionInput(),savedUrl=savedConnection?.model_settings?.base_url||providerCatalog[provider]?.base_url,reuse_key=!key&&savedConnection?.configured&&savedConnection.provider===provider&&settings.base_url===savedUrl;if(!key&&!reuse_key)throw Error('请导入所选服务的 API Key，再保存连接。');await api('/api/credentials',{provider,key,reuse_key:!!reuse_key,settings});key=null;providerSettingsDirty=false;await health();$('#api-settings').open=false;message('模型连接已保存到本机内存；尚未测试账号权限，开始读取时才发出 API 请求。');}catch(e){key=null;message(connectionError(e),true);}};
 $('#clear-key').onclick=async()=>{await api('/api/credentials',{provider:$('#provider').value,key:''});$('#api-key').value='';await health();};
 $('#clear-input').onclick=clearInput;$('#close-saved').onclick=()=>$('#saved').hidden=true;
+$('#provider').onchange=()=>{providerTouched=true;providerSettingsDirty=true;$('#api-key').value='';$('#key-file').value='';connectionFields(true);$('#key-status').textContent='已切换服务，请导入对应密钥并保存';};
+for(const selector of ['#model-id','#custom-model-id','#model-base-url','#model-workspace','#output-token-parameter','#model-json-mode'])$(selector).oninput=()=>{providerSettingsDirty=true;$('#key-status').textContent='连接参数已修改，请重新保存';};
+$('#model-id').onchange=()=>{$('#custom-model-field').hidden=$('#model-id').value!=='__custom__';providerSettingsDirty=true;$('#key-status').textContent='模型已修改，请保存连接设置';};
 $('#start').onclick=async()=>{
  if($('#start').disabled)return;$('#start').disabled=true;
- try{if(!$('#allow-send').checked)throw Error('请先确认允许将业务文字与提取材料发送给所选模型。');const h=await health();if(!h.configured)throw Error('请先配置 API Key。');if($('#provider').value!==h.provider)throw Error('所选模型与已配置密钥不对应，请先保存模型设置。');if(!serviceFeatures.includes('background_reading_review'))throw Error('后台仍是旧版本。请更新本地服务后使用自动流程；当前已保存的读取不会被删除。');if($('#question').value.trim().length<3)throw Error('请先描述业务问题。');$('#start').disabled=true;
+ try{providerTouched=true;if(providerSettingsDirty)throw Error('模型连接已修改，请先保存模型设置。');if(!$('#allow-send').checked)throw Error('请先确认允许将业务文字与提取材料发送给所选模型。');const h=await health();if(!h.configured)throw Error('请先配置 API Key。');if($('#provider').value!==h.provider)throw Error('所选模型与已配置密钥不对应，请先保存模型设置。');if(!serviceFeatures.includes('background_reading_review'))throw Error('后台仍是旧版本。请更新本地服务后使用自动流程；当前已保存的读取不会被删除。');if($('#question').value.trim().length<3)throw Error('请先描述业务问题。');$('#start').disabled=true;
  const uploadInput=await buildUploadInput();await checkUploadInput(uploadInput);
- const response=await api('/api/start',{question:$('#question').value,provider:$('#provider').value,...uploadInput,example_id:selected?.id||null,...(selected?{source_edits:Array.from(document.querySelectorAll('[data-source]')).filter(e=>e.querySelector('.include-source').checked).map(e=>({source_id:e.dataset.source,text:e.querySelector('.source-edit').value}))}:{}),synthetic:$('#synthetic').checked,allow_send:true,automatic_review:true});runId=response.id;history.replaceState(null,'','#run='+runId);reviewSignature='';$('#workspace').hidden=false;$('#saved').hidden=true;$('#workspace').scrollIntoView({behavior:'smooth',block:'start'});message('已提交本次输入。下方显示真实进度，编辑上方文字不会改写正在执行的任务。');poll();
+ const response=await api('/api/start',{question:$('#question').value,provider:$('#provider').value,...uploadInput,...inputSelection(),synthetic:$('#synthetic').checked,allow_send:true,automatic_review:true});runId=response.id;history.replaceState(null,'','#run='+runId);reviewSignature='';$('#workspace').hidden=false;$('#saved').hidden=true;$('#workspace').scrollIntoView({behavior:'smooth',block:'start'});message('已开始分析。上方输入框的后续修改不影响本次运行。');poll();
  }catch(e){message(e.message,true);}finally{$('#start').disabled=false;}
 };
 async function poll(){clearTimeout(timer);try{const run=await api('/api/run?id='+encodeURIComponent(runId));current=run;renderRun(run);if(run.busy)timer=setTimeout(poll,1600);}catch(e){$('#progress').textContent='连接暂时中断：'+e.message+'。3 秒后尝试获取当前任务状态，不重复调用模型。';timer=setTimeout(poll,3000);}}
@@ -92,33 +143,46 @@ function renderRun(r){
  $('#review').hidden=!r.review_kind||r.busy||(r.automatic_review&&!['science','data','information'].includes(r.review_kind));$('#submit-review').disabled=r.busy;
  renderClarification(r);
  const goal=r.queries.find(q=>q.query_id===r.query_id)?.business_goal;
- $('#result').innerHTML=r.result?`${goal?`<p class="answer-goal"><b>你提出的问题</b><br>${esc(claim(goal))}</p>`:''}${r.automatic_review?`<p class="muted">${r.result.independent_replay?'业务目标已完成后台复核；数学结论以本页列出的条件为前提。':'以下是本次实际处理状态；尚未得到通过证书重放的识别结论。'}</p>`:''}`+resultHTML(r.result,null):'';
+ $('#result').innerHTML=r.result?`${goal?`<p class="answer-goal"><b>你提出的问题</b><br>${esc(claim(goal))}</p>`:''}${r.automatic_review?`<p class="muted">${r.result.independent_replay?'问题已核对。以下结论依赖所列假设。':'本次尚未得到通过验证的识别结果。'}</p>`:''}`+resultHTML(r.result,null):'';
  $('#events').innerHTML=r.events.map(e=>`<li>${new Date(e.time*1000).toLocaleTimeString()} · ${esc(e.message)}</li>`).join('');
- $('#downloads').innerHTML=`<details class="optional"><summary>下载本次输入、读取和证据</summary><div class="download-links">${r.downloads.map(n=>`<a href="/api/download?id=${encodeURIComponent(r.id)}&name=${encodeURIComponent(n)}">${esc(n)}.json ↓</a>`).join('')}</div></details>`;
+ $('#downloads').innerHTML=`<details class="optional"><summary>下载输入与结果</summary><div class="download-links">${r.downloads.map(n=>`<a href="/api/download?id=${encodeURIComponent(r.id)}&name=${encodeURIComponent(n)}">${esc(n)}.json ↓</a>`).join('')}</div></details>`;
 }
 $('#retry-reading').onclick=async()=>{
  try{$('#retry-reading').disabled=true;await api('/api/action',{id:runId,action:'retry_reading',payload:{}});await poll();}
  catch(e){$('#run-error').textContent=e.message;}
  finally{$('#retry-reading').disabled=!!current?.busy;}
 };
+function clarificationText(item,result){
+ const raw=typeof item==='string'?item:item.display_question||item.question||item.text||'请说明下面这段原文的意思；不清楚时可以直接注明。';
+ const copies={"请说明理论识别可以使用的总体观测信息及覆盖范围；有限样本不能代替。": "除了这一次收集的记录，你还有其他可用资料吗？例如以往试验的记录，或研究方案已经给出的平均结果、发生比例。请说明资料来自哪里、包括哪些对象，以及他们接受了什么处理。只有这一次的记录，或暂时不清楚，也请直接说明；系统会检查这些资料能用于哪一步。", "请核对并补充完整历史分配规则及其参数；规则资料不完整不等于当前数学方法未覆盖。": "当时是怎样决定谁接受处理、谁不接受的？如果抽签，请说明每人中签的机会，或各组抽多少人；如果不是抽签，请说明实际选择办法。可以直接上传试验方案。", "请说明原试点是否逐对象独立抽签，以及每个对象的已知概率。": "当时是每个对象分别抽签，还是先规定一共选多少个？如果分别抽签，每个对象中签的机会是多少？例如“每家各自抽签，各有一半机会”；没有记录时请说明。", "请明确比较两端的自身处理、同伴状态及相减方向。": "你想比较哪两种情形？请分别说明本人做什么、相关的人或单位做什么，以及想知道哪一种比另一种增加或减少多少。", "请明确评价全体、指定子集还是单个对象，以及汇总方式。": "你关心全部对象、其中一组，还是某一个对象？如果有多个对象，是看每个对象的结果，还是平均结果？如果取平均，每个对象是否同等重要？", "请明确同伴分组定义；不能仅凭受到同事影响而选择分组规则。": "你想怎样描述相关对象的参与情况？例如参与的人数、参与比例，或是否有人参与。请说明你的分法；还没决定时可以直接注明。", "请核对原文是否明确：处理前固定网络。": "这些联系是在实施处理前就确定的吗？实施处理后，哪些人或单位彼此相连会不会改变？", "请核对原文是否明确：两端结果定义、期间和背景相同。": "两种情形是否比较同一个指标、同一段时间和同样的背景？如果有不同，请说明具体哪里不同。", "本问希望在哪些已指定的条件下评价，还是希望跨背景评价？请说明条件、所指背景及时间；尚未决定可以保留。": "这个问题只看某个地区、时期或条件下的效果，还是把不同情况合在一起看？请说明你关心的范围；还没决定可以直接说。", "本次评价的是处理前研究名单中的全体／事先确定的小组，还是按本轮实际启用、回访或结果筛选出的对象？请说明选择依据；不需要提供提出问题的日期。": "这次想评价哪些对象，是怎样选出来的？是试点前名单中的全部或事先选好的一组，还是试点后按是否使用、是否回访或实际表现选出的？不需要说明你何时提出问题。", "关注的结果是二元状态、次数，还是连续数值？请说明结果的取值含义。": "这个结果记录的是什么？例如是否感染（是/否）、投诉次数，或收入金额。若用数字编码，请说明每个值的含义。", "请核对效应名称、两端条件和相减方向；系统不会交换两端或补齐基准。": "你想知道哪种情形比哪种情形增加或减少多少？请分别写明本人和相关对象在两种情形下做什么。", "请核对要用哪个完整方案减去哪个基准方案，以及是否比较同一结果、单位、期间与研究背景。": "你希望用哪个方案与哪个方案比较？请写明各方案中谁接受处理、谁不接受，以及比较的是不是同一批对象、同一指标、同一时期和同一背景。", "下面这些说明是在描述已有资料与待确认事项，还是希望为本次计算另外增加条件？请说明你的原意。": "这段话是在介绍已有资料，还是你希望本次分析采用的一项假设？如果只是可能采用、还没有决定，或明确不采用，请直接说明。"};
+ if(Object.hasOwn(copies,raw))return copies[raw];
+ const match=raw.match(/^本次计算需要以下条件，请说明是否采用：“(.+)”。不知道或尚未决定也可以说明。$/);
+ if(match){
+  const science={"给定本次背景，完整处理安排与潜在结果独立": "在本次限定的背景下，处理名单不因对象在不同安排下可能出现的结果而被选择。", "实际观察结果对应实际完整安排下的潜在结果": "实际记录的结果对应当时实际执行的安排，包括本人和其他对象接受的处理。", "本次所需的总体条件均值存在且有限": "本次比较用到的平均结果有定义，而且不是无穷大。", "最终完整处理名单相同时，第一阶段配额方案不再直接影响结果": "只要最终每个对象接受的处理相同，最初抽到哪一种名额方案就不会另外改变结果。"};
+  const known=Object.values(conditionTerms).find(x=>x.text===match[1]);
+  const meaning=science[match[1]]||known?.explanation?.meaning;
+  if(meaning)return '本方法需要采用这项假设：'+meaning+' 本次是否采用？可以回答“采用”“不采用”或“尚未决定”，并说明依据；系统不会默认采用。';
+ }
+ return raw;
+}
 function renderClarification(r){
- const items=(r.user_question?.items||[]).map(x=>x.display_question||(/source_ids|additional_restrictions|before|after|JSON|s00\d/i.test(x.question)?'自动理解对一段说明仍有分歧。请说明它对本次比较具体有哪些限制；不确定的部分可以直接注明。':x.question));
- if(r.automatic_review&&r.review_kind==='notes')items.push(...Object.values(r.review_sheets?.notes?.notes||{}).map(n=>'请说明这条内容具体限定了什么（若只是说明或尚未决定，请注明）：'+n.text));
- if(r.result?.state==='NEEDS_INPUT')items.push(...(r.result.clarification_questions||[]).map(x=>typeof x==='string'?x:x.question||x.text||'请补充结果中指出的缺失信息。'));
+ const items=(r.user_question?.items||[]).map(x=>clarificationText(x,r.result));
+ if(r.automatic_review&&r.review_kind==='notes')items.push(...Object.values(r.review_sheets?.notes?.notes||{}).map(n=>'下面这句话是背景介绍，还是本次要采用的假设？也可以回答不采用或尚未决定：'+n.text));
+ if(r.result?.state==='NEEDS_INPUT')items.push(...(r.result.clarification_questions||[]).map(x=>clarificationText(x,r.result)));
  $('#clarification').hidden=r.busy||!items.length;
  const quotes=[...new Set((r.user_question?.items||[]).flatMap(x=>x.source_texts||[]))];
- $('#clarification-questions').innerHTML=(r.user_question?.message?`<p>${esc(r.user_question.message)}</p>`:'')+'<ul>'+[...new Set(items)].map(q=>`<li>${esc(q)}</li>`).join('')+'</ul>'+ (quotes.length?`<details><summary>这次追问对应的原文</summary>${quotes.map(q=>`<blockquote>${esc(q)}</blockquote>`).join('')}</details>`:'')+'<p class="muted">补充内容将作为新材料重新读取，旧审核不会直接沿用。</p>';
+ $('#clarification-questions').innerHTML=(r.user_question?.message?`<p>${esc(r.user_question.message)}</p>`:'')+'<ul>'+[...new Set(items)].map(q=>`<li>${esc(q)}</li>`).join('')+'</ul>'+ (quotes.length?`<div class="clarification-source"><b>需要说明的原文</b>${quotes.map(q=>`<blockquote>${esc(q)}</blockquote>`).join('')}</div>`:'')+'<p class="muted">提交后重新检查。暂时无法补充时，可保留当前结果，之后再继续。</p>';
  $('#send-clarification').disabled=r.busy;
 }
 function errorExplanation(error){
  const text=error.code+' '+error.message;
- if(error.code==='READING_REVIEW_DISAGREEMENT')return '系统对材料的解释尚未达成一致，未开始识别。可以重试复核；无需补写本来已经明确的条件。';
- if(error.code==='INCOMPLETE_COMPLETION')return '模型回复达到输出上限或未正常结束，本次复核尚未完成。这不是材料缺条件或不可识别；可以重新核对，原业务无需改写。';
- if(/API_KEY|401|403|Unauthorized/.test(text))return '模型认证未通过。请在“模型连接”中检查密钥和权限；已保存的业务材料不会被删除。';
- if(/TIMEOUT|timeout|timed out/i.test(text))return '模型在等待上限内没有返回完整结果。这不表示业务无法识别；已保存此前完成的读取。';
- if(/LIMIT|429/.test(text))return '本轮遇到调用额度或服务限制。请核对模型服务设置后继续，系统没有自动重复请求。';
- if(/READING_AUDIT/.test(text))return '后台复核未返回可检查的结果，因此本次没有放行。已有材料仍保留；这不是数学上的不可识别结论。';
- return '本轮处理未完成，已有输入和读取仍保留。这不是数学上的不可识别结论；具体原因可在技术诊断中查看。';
+ if(error.code==='READING_REVIEW_DISAGREEMENT')return '模型对原文的理解仍有冲突，识别尚未开始。可点击“重新核对”；无需改写已明确的条件。';
+ if(error.code==='INCOMPLETE_COMPLETION')return '模型回复被截断，核对未完成。请点击“重新核对”；无需修改研究问题。';
+ if(/API_KEY|401|403|Unauthorized/.test(text))return '模型连接失败，请检查 API Key 和模型权限。已提交的材料仍保留。';
+ if(/TIMEOUT|timeout|timed out/i.test(text))return '模型请求超时。此前的读取已保存，可点击“重新核对”继续。';
+ if(/LIMIT|429/.test(text))return '已达到调用次数上限，或模型服务正在限流。请检查额度和服务状态后重试。';
+ if(/READING_AUDIT/.test(text))return '模型的核对回复格式不正确，识别尚未开始。材料已保存，可重新核对。';
+ return '本次运行未完成，输入和读取记录已保存。请展开技术诊断查看错误。';
 }
 $('#send-clarification').onclick=async()=>{
  const text=$('#clarification-answer').value.trim();
@@ -153,14 +217,14 @@ function renderIssues(r){
  const items=noteItems(r),delta=compactChanges(r),box=$('#review-issues');
  const value=x=>x==null?'未列出':Array.isArray(x)?(x.length?x.map(v=>typeof v==='object'?(v.text||JSON.stringify(v)):v).join('；'):'无此项'):typeof x==='object'?(x.text||JSON.stringify(x)):String(x);
  box.hidden=!items.length&&!delta.changes.length;
- box.innerHTML=delta.changes.length?`<h4>复核具体改了什么</h4><p>请对照原材料查看以下变化。这一步只确认读取变化，科学条件稍后单独确认。</p>${delta.changes.map(d=>`<article class="issue-item"><b>${esc(fieldName(d.field_path))}${d.field_path.includes('/source_ids')?' · 原文引用':''}</b><p>复核前：${esc(value(d.before))}</p><p>复核后：${esc(value(d.after))}</p></article>`).join('')}${delta.allowed?'':'<p>本次还改动了目标或其他关键事实，需要核对完整变化，不能一键接受。</p>'}`:
-  items.length?`<h4>模型标记了 ${items.length} 条需要核对的说明</h4><p>这不等于你的材料缺少条件。先让模型回到原文核对归属；不会直接删掉这些说明。</p>${items.map(item=>`<article class="issue-item"><p>${esc(item.text)}</p>${item.quotes?.length?`<details><summary>查看对应原文</summary>${item.quotes.map(q=>`<blockquote>${esc(q)}</blockquote>`).join('')}</details>`:''}</article>`).join('')}`:'';
+ box.innerHTML=delta.changes.length?`<h4>复核具体改了什么</h4><p>以下是模型修改的内容，请对照原文核对。采用哪些研究假设会另行确认。</p>${delta.changes.map(d=>`<article class="issue-item"><b>${esc(fieldName(d.field_path))}${d.field_path.includes('/source_ids')?' · 原文引用':''}</b><p>复核前：${esc(value(d.before))}</p><p>复核后：${esc(value(d.after))}</p></article>`).join('')}${delta.allowed?'':'<p>本次还改动了目标或其他关键事实，需要核对完整变化，不能一键接受。</p>'}`:
+  items.length?`<h4>模型标记了 ${items.length} 条需要核对的说明</h4><p>这些说明需要重新核对，未必是材料缺失。可点击下方按钮让模型检查原文。</p>${items.map(item=>`<article class="issue-item"><p>${esc(item.text)}</p>${item.quotes?.length?`<details><summary>查看对应原文</summary>${item.quotes.map(q=>`<blockquote>${esc(q)}</blockquote>`).join('')}</details>`:''}</article>`).join('')}`:'';
  const show=items.length>0&&!delta.allowed&&['source','notes','changes'].includes(r.review_kind);
  $('#request-recheck').hidden=!show;
  $('#request-recheck').disabled=!r.recheck_preview?.available||r.busy||reviewSubmitting;
  $('#request-recheck').textContent='让模型复核这 '+items.length+' 条说明';
- if(show&&!r.recheck_preview){box.innerHTML+='<p class="message">当前后台仍是旧版本，暂不支持一键复核。已保存本次读取，请先更新本地服务；不必填写下面的技术审核表。</p>';}
- else if(show&&!r.recheck_preview.available)box.innerHTML+='<p>本轮暂不能继续复核（来源未定位或已到复核上限）。请查看原文并补充说明，不能自动放行。</p>';
+ if(show&&!r.recheck_preview){box.innerHTML+='<p class="message">当前服务版本不支持自动复核，请更新后继续。本次读取已保存。</p>';}
+ else if(show&&!r.recheck_preview.available)box.innerHTML+='<p>自动复核暂不能继续：未找到对应原文，或已达到复核次数上限。请查看详细记录。</p>';
  if(show)$('#confirm-summary').hidden=true;
 }
 // Presentation compatibility for a running server that predates review_summary.
@@ -321,20 +385,31 @@ function conditionEntry(text){
  const exact=Object.values(conditionTerms).find(item=>item.text&&item.text===text);
  return exact?{...exact,text}:{text,label:text,term:'',category:'other'};
 }
-function conditionHeading(item){return (item.term?`<span class="condition-term">(${esc(item.term)})</span> `:'')+esc(item.label||item.text);}
+function conditionExplanation(item){
+ const known=item.key?conditionTerms[item.key]:Object.values(conditionTerms).find(x=>x.text&&x.text===item.text);
+ return known?.explanation||null;
+}
+function conditionHeading(item){const help=conditionExplanation(item);return esc(help?.label||item.label||item.text)+(item.term?` <span class="condition-heading-term">(${esc(item.term)})</span>`:'');}
+function conditionDetailHTML(item){
+ const help=conditionExplanation(item);
+ return `<b>${conditionHeading(item)}</b>`+(help?
+  `<p>${esc(help.meaning)}</p><p><b>${item.category==='science'?'为什么需要：':'用于：'}</b>${esc(help.purpose)}</p><details class="condition-formal"><summary>本次记录的正式条件</summary><p>${esc(item.text||item.label)}</p></details>`:
+  `<p>${esc(item.text||item.label)}</p><p class="muted">此项暂无简明解释，保留本次记录的原文。</p>`);
+}
+
 function conciseReviewHTML(compact,r){
  const cards=compact.cards||[],science=r.review_kind==='science';
  const items=compact.condition_items?.length?compact.condition_items:(cards[1]?.lines||[]).map(conditionEntry);
  const scienceItems=items.filter(item=>item.category==='science');
- const headings=[...new Set((scienceItems.length?scienceItems:items).map(item=>item.label||item.text))];
+ const headings=[...new Set((scienceItems.length?scienceItems:items).map(item=>conditionExplanation(item)?.label||item.label||item.text))];
  const info=compact.information_brief||cards[2]?.lines||[];
  const rows=[{title:'① 研究目标',status:science?'已读取 · 可核对':'请核对',lines:cards[0]?.lines?.slice(0,3)||[]},
   {title:'② 研究假设',status:science?'需你确认采用':'待核对',lines:headings},
   {title:'③ 可用信息',status:science?'已读取 · 可核对':'请核对',lines:info.slice(0,3)}];
  const open=$('#confirmation-scope')?.open?' open':'';
  return `<div class="review-highlights">${rows.map((c,i)=>`<article><div class="confirm-card-head"><h4>${esc(c.title)}</h4><span class="confirm-status ${science&&i===1?'needs-decision':''}">${esc(c.status)}</span></div>${i===1?'<ul class="condition-chips">'+c.lines.map(x=>`<li>${esc(x)}</li>`).join('')+'</ul>':c.lines.map(x=>`<p>${esc(x)}</p>`).join('')}</article>`).join('')}</div>`+
-  `<p class="confirmation-intent">${science?'本次请确认：采用第②栏列出的研究假设。第①、③栏供核对目标与信息；完整定义和适用范围可展开查看。':'请核对目标、条件和信息是否对应原材料；完整内容可展开查看。'}</p>`+
-  `<details id="confirmation-scope" class="optional"${open}><summary>查看完整条件与适用范围（${cards.reduce((n,c)=>n+c.lines.length,0)}项说明）</summary>${cards.map((c,i)=>`<h4>${esc(rows[i]?.title||c.title)}</h4><ul>${c.lines.map((line,j)=>`<li>${i===1&&items[j]?.term?'<b>'+conditionHeading(items[j])+'</b><br>':''}${esc(line)}</li>`).join('')}</ul>`).join('')}</details>`;
+  `<p class="confirmation-intent">${science?'请确认采用第②栏的假设，并核对第①、③栏。完整说明可展开查看。':'请核对下面三项是否符合原意。'}</p>`+
+  `<details id="confirmation-scope" class="optional"${open}><summary>查看完整条件与适用范围（${cards.reduce((n,c)=>n+c.lines.length,0)}项说明）</summary>${cards.map((c,i)=>`<h4>${esc(rows[i]?.title||c.title)}</h4><ul>${c.lines.map((line,j)=>`<li>${i===1&&items[j]?conditionDetailHTML(items[j]):esc(line)}</li>`).join('')}</ul>`).join('')}</details>`;
 }
 function renderCompactReview(r){
  if(r.review_kind==='information'){renderInformationQuestion(r);return;}
@@ -351,7 +426,7 @@ function renderReview(r){
  records=structuredClone(r.review_templates||{});rowBindings=[];$('#use-review-json').checked=false;
  renderCompactReview(r);
  $('#review-details').open=false;
- $('#review-title').textContent={query:'模型理解的是你要问的吗？',source:'研究方案是否被正确理解？',notes:'需要核对这几条说明',changes:'模型复核后改了哪些内容？',information:'这些总体信息是否确实可用？',science:'本次计算采用以下条件，可以吗？',data:'这些数据能否用于本次估计？'}[r.review_kind]||'请核对当前问题';
+ $('#review-title').textContent={query:'系统理解的问题',source:'系统读到的研究方案',notes:'需要核对这几条说明',changes:'模型复核后改了哪些内容？',information:'这些总体信息是否确实可用？',science:'请确认本次采用的假设',data:'这些数据能否用于本次估计？'}[r.review_kind]||'请核对当前问题';
  let html='';
  if(r.plan?.proposed_target){const t=r.plan.proposed_target;html+=`<div class="target-preview"><h4>本次交给识别库的目标</h4><p>${esc(t.outcome||t.kind)}</p><p>评价对象：${esc((t.evaluation_population||t.node_order||[]).join('、'))}</p><p>背景／时期：${esc(t.context||'以原始研究说明为准')}</p><details><summary>核对完整目标与权重</summary><pre>${esc(JSON.stringify(t,null,2))}</pre></details></div>`;}
  for(const [name,sheet] of Object.entries(r.review_sheets||{})){
@@ -510,7 +585,7 @@ function formulaHTML(result){const c=result.mathematical_claim||{},t=c.target||{
  else if(c.kind==='POINT'&&['DIRECT_EFFECT','SPILLOVER_EFFECT','LOCAL_TOTAL_EFFECT'].includes(t.kind)&&t.first&&t.second)content='<mi>τ</mi><mo>=</mo><munder><mo>∑</mo><mrow><mi>i</mi><mo>∈</mo><mi>V</mi></mrow></munder><msub><mi>w</mi><mi>i</mi></msub><mo>(</mo>'+expectation(t.first[0],t.first[1])+ '<mo>−</mo>'+expectation(t.second[0],t.second[1])+'<mo>)</mo>';
  else if(!content&&typeof c.expression==='string')content=mathText(c.expression);
  const f=c.functional,legend=f?symbolLegend(f):'';
- return content?`<div class="formula"><math display="block"><mrow>${content}</mrow></math></div>${legend}<p class="formula-origin muted">数学表达式按识别库返回的目标、公式或证书渲染；符号释义由显示层生成。</p>`:'';
+ return content?`<div class="formula"><math display="block"><mrow>${content}</mrow></math></div>${legend}<details class="formula-origin muted"><summary>公式来源</summary><p>按本次识别库返回的目标、公式和证书展示。</p></details>`:'';
 }
 function populationHTML(t){const nodes=t.evaluation_population||t.population||(t.unit_weights?(t.node_order||[]).filter((n,i)=>!['0','0/1'].includes(String(t.unit_weights[i]))):t.node_order)||[];const names=esc(nodes.join('、'));return nodes.length>8?`<details><summary>${nodes.length} 个评价对象（展开名单）</summary><p>${names}</p></details>`:`<p>${names}</p>`;}
 function comparisonText(t){
@@ -569,32 +644,37 @@ function resultConditions(result){
 }
 function resultConditionsHTML(result){
  const items=resultConditions(result);if(!items.length)return '';
- const groups=[['science','科学假设与模型'],['information','目标、信息与范围'],['other','其他已记录条件']];
+ const groups=[['science','采用的研究假设'],['information','本次使用的信息与范围'],['other','其他已记录条件']];
+ const t=result.mathematical_claim?.target||{};
+ const context=[t.treatment?'本题的处理：'+t.treatment:'',t.outcome?'关注的结果：'+t.outcome:''].filter(Boolean);
  return '<section class="adopted-conditions"><h4>本次结论依赖的条件</h4><div class="condition-groups">'+groups.map(([kind,title])=>{
   const rows=items.filter(x=>(x.category||'information')===kind);
   return rows.length?`<div><h5>${title}</h5><ul>${rows.map(x=>`<li>${conditionHeading(x)}</li>`).join('')}</ul></div>`:'';
- }).join('')+'</div><details class="condition-definitions"><summary>展开完整定义与适用范围</summary><ul>'+items.map(x=>`<li><b>${conditionHeading(x)}</b><p>${esc(x.text||x.label)}</p></li>`).join('')+'</ul></details><p class="muted">条件来自本次审核记录与证书；中英文名称为通用说明。证书验证条件下的结论，不证明现实中的假设成立。</p></section>';
+ }).join('')+'</div><details class="condition-definitions"><summary>这些假设在本题中是什么意思？</summary>'+
+ (context.length?'<p class="condition-context">'+context.map(esc).join('<br>')+'</p>':'')+
+ '<ul>'+items.map(x=>`<li class="condition-explanation">${conditionDetailHTML(x)}</li>`).join('')+'</ul></details><p class="muted">结论以这些条件成立为前提。证书验证不证明现实中的假设一定成立。</p></section>';
 }
 function resultHTML(result,estimate){
  const state=result.state||result.kind,good=['POINT','PARTIAL'].includes(state),claimData=result.mathematical_claim;
  const reason=result.reason_code||'',readingReasons={
-  TARGET_FIRST_CONTRACT_REJECTED:['模型输出格式未通过','模型回复没有按当前字段格式提供内容或引用，尚未进入数学求解。这不表示节点数超限，也不是不可识别结论；具体字段见下方技术诊断。'],
-  COMBINED_OR_AMBIGUOUS_GRAPH_REPRESENTATIONS:['研究结构需要复核','当前读取同时包含对象之间的关系网络和变量之间的因果图，尚未明确它们各自的作用，需要先复核业务解释。这不表示后门或前门定理尚未实现。'],
-  TARGET_AVERAGING_AND_POPULATION_OPERATOR_MISMATCH:['目标与信息范围需要复核','当前读取中的平均方式与总体信息类型不一致，需要核对原文；不能自动替换计算目标。']};
+  TARGET_FIRST_CONTRACT_REJECTED:['模型回复格式有误','模型漏填或错填了必要内容，识别尚未开始。具体字段见详细记录。'],
+  COMBINED_OR_AMBIGUOUS_GRAPH_REPRESENTATIONS:['研究结构需要复核','模型混用了对象关系和变量因果关系，需要重新核对两类图的含义。'],
+  TARGET_AVERAGING_AND_POPULATION_OPERATOR_MISMATCH:['目标与信息范围需要复核','模型读到的平均方式与可用信息不一致，需要核对原文。']};
  const title=readingReasons[reason]?.[0]||(reason.startsWith('DECLARED_MODEL_EXCLUDES:')||reason.startsWith('REQUIRED_ASSUMPTION_NOT_ADOPTED:')?'当前方法所需条件未采用':reason.startsWith('ADDITIONAL_')?'附加声明尚未处理':names[state]||state);
  let html=`<article class="result-card ${good?'':'blocked'}"><div class="result-header"><h3>${esc(title)}</h3><span class="tag">${esc(result.independent_replay?'证书独立重放通过':good?'请核对验证记录':'未生成认证结论')}</span></div>`;
- if(claimData){const t=claimData.target||{};html+=`<div class="result-facts"><div><b>关注的结果与背景</b><p>${esc(t.outcome||t.kind||'见数学目标')}</p><p class="muted">${esc(t.context||'')}</p>${t.treatment?`<p class="muted">处理含义：${esc(t.treatment)}</p>`:''}</div><div><b>评价对象与比较</b>${populationHTML(t)}<p>${esc(comparisonText(t))}</p></div></div><h4>识别公式</h4>${formulaHTML(result)}${formulaGuide(t,claimData)}`;if(state==='POINT')html+='<p class="muted">识别给出的是总体信息的函数。没有代入总体数值时，POINT 不等于已算出业务效果的数值。</p>';}
- if(claimData?.representation==='EXACT_IDENTIFIED_INTERVAL')html+=`<p>${claimData.sharp===true?'界限在本次审核采用的模型内是 sharp 的。':'界限是否 sharp 以证书声明为准。'}${claimData.informative===false?'本次界限尚未收窄科学给定的逻辑范围。':''}</p>`;
- if(result.reason_code)html+=`<p><b>当前情况：</b>${esc({NEEDS_INPUT:'现有材料不足以确定所需条件，请补充下方信息。',READING_RECHECK_REQUIRED:'模型的解释仍有疑点，需要复核原文；这不是不可识别结论。',CHECK_BLOCKED:'本次读取或审核未通过，尚不能给出认证结论。',UNSUPPORTED:'已说明的问题超出当前识别库的覆盖范围。',ADAPTER_NOT_CONNECTED:'读取结果中包含当前路线尚不能处理的条件或目标，尚未生成识别结论。',REVIEW_REQUIRED:'有一项研究条件仍需明确。'}[state]||'本次流程尚未完成，具体诊断保留在技术记录中。')}</p>`;
+ if(result.independent_replay===true&&state==='POINT')html+='<p class="identification-conclusion">在下列假设下，本题目标可以由可用的总体信息唯一确定。下面的公式供后续估计使用。</p>';
+ if(claimData){const t=claimData.target||{};html+=`<div class="result-facts"><div><b>关注的结果与背景</b><p>${esc(t.outcome||t.kind||'见数学目标')}</p><p class="muted">${esc(t.context||'')}</p>${t.treatment?`<p class="muted">处理含义：${esc(t.treatment)}</p>`:''}</div><div><b>评价对象与比较</b>${populationHTML(t)}<p>${esc(comparisonText(t))}</p></div></div><h4>识别公式</h4>${formulaHTML(result)}${formulaGuide(t,claimData)}`;if(state==='POINT')html+='<p class="muted">这是识别公式，效应数值需在估计阶段计算。</p>';}
+ if(claimData?.representation==='EXACT_IDENTIFIED_INTERVAL')html+=`<p>${claimData.sharp===true?'在所列假设下，这是最紧的上下界（sharp bounds）。':'是否为最紧的上下界，请查看验证记录。'}${claimData.informative===false?'现有信息没有进一步缩小预先给定的范围。':''}</p>`;
+ if(result.reason_code)html+=`<p><b>当前情况：</b>${esc({NEEDS_INPUT:'缺少必要信息，请回答页面列出的具体问题。',READING_RECHECK_REQUIRED:'模型的读取结果需要重新核对，识别尚未完成。',CHECK_BLOCKED:'读取或条件检查未通过，暂不能给出识别结果。',UNSUPPORTED:'当前识别方法还不能处理这类问题。',ADAPTER_NOT_CONNECTED:'已有处理流程尚未接通这类目标或条件。',REVIEW_REQUIRED:'有一项研究条件仍需明确。'}[state]||'本次分析未完成，具体原因见详细记录。')}</p>`;
  if(readingReasons[reason])html+=`<p>${esc(readingReasons[reason][1])}</p>`;
  if(result.processing_explanation)html+=`<p>${esc(result.processing_explanation)}</p>`;
  const choices=(result.assumption_choices_review?.retained||[]).filter(c=>c.required===false);
  const choiceLabels={MEAN_EXPOSURE_SUFFICIENCY:'同伴分组的均值充分性',OUTCOME_EXPOSURE_SUFFICIENCY:'同伴分组确定每个潜在结果的假设'};
  if(choices.length)html+='<p class="muted">'+choices.map(c=>esc(choiceLabels[c.condition]?('本次'+(c.status==='NOT_ADOPTED'?'不采用':'尚未决定是否采用')+choiceLabels[c.condition]+'；所用方法不需要这项假设。'):c.condition)).join('；')+'</p>';
- const questions=result.clarification_questions||[];if(questions.length)html+='<ul>'+questions.map(q=>`<li>${esc(typeof q==='string'?q:JSON.stringify(q))}</li>`).join('')+'</ul>';
+ const questions=result.clarification_questions||[];if(questions.length)html+='<ul>'+questions.map(q=>`<li>${esc(clarificationText(q,result))}</li>`).join('')+'</ul>';
  html+=resultConditionsHTML(result);
- if(!good)html+='<p class="muted">'+(state==='NEEDS_INPUT'?'可以按上面的具体问题补充说明；不知道或尚未决定也可以如实填写。':'本次尚未得到认证结论，不等于已经证明不可识别；不需要为了通过而改变你的研究条件。')+'</p>';
- html+=`<details><summary>查看识别结果与证据详情</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details></article>`;
+ if(!good)html+='<p class="muted">'+(state==='NEEDS_INPUT'?'不清楚或尚未决定的内容，请注明。':'本次停止不代表已证明不可识别。')+'</p>';
+ html+=`<details><summary>查看公式与验证记录</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details></article>`;
  return html;
 }
 async function init(){try{await health();examples=await api('/api/examples');renderExamples();const match=location.hash.match(/^#run=([a-f0-9]{32})$/);if(match){runId=match[1];$('#workspace').hidden=false;poll();}}catch(e){$('#connection').textContent='本地服务未连接';message('请在仓库根目录运行 python demo/serve.py。'+e.message,true);}}

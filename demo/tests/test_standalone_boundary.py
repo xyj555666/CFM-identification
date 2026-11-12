@@ -45,7 +45,7 @@ def test_nine_examples_are_identification_only():
         assert 'data' not in item and 'data_schema' not in item
         for run in item.get('saved_runs', []):
             assert 'estimation' not in run
-    assert any(x['id'] == 'n60' for x in examples)
+    assert any(x['id'] == 'n100' for x in examples)
 
 
 def test_estimation_is_rejected_without_mutating_identification(tmp_path):
@@ -67,4 +67,4 @@ def test_page_does_not_offer_estimation_inputs_or_actions():
         assert f'id="{identifier}"' not in html
         assert f"$('#{identifier}')" not in js
     assert "action:'estimate'" not in js
-    assert '识别公式、采用条件和证书结果' in html
+    assert '查看识别公式、界限和所需假设' in html

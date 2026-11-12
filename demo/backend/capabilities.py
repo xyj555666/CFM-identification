@@ -69,9 +69,10 @@ def presentation_catalog():
  """Names for existing review requirements, never scientific assertions."""
  from .runtime import PROJECT_ROOT
  terms=json.loads((PROJECT_ROOT/'demo/condition_terms.json').read_text('utf8'))
+ explanations=json.loads((PROJECT_ROOT/'demo/condition_explanations.json').read_text('utf8'))
  from cfm_id.network_contrast_context import SCIENCE_REQUIREMENTS
  descriptions={**SCIENCE,**SCIENCE_REQUIREMENTS,'a4_source':'采用材料中声明的总体信息及其对象、处理和同伴状态覆盖范围'}
- return {key:dict(key=key,term=row[0],label=row[1],category=row[2],text=descriptions.get(key,''))
+ return {key:dict(key=key,term=row[0],label=row[1],category=row[2],text=descriptions.get(key,''),explanation=explanations.get(key))
          for key,row in terms.items()}
 
 def inventory():

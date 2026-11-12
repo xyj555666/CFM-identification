@@ -49,8 +49,8 @@ async function buildUploadInput(){
  const files=await Promise.all([...docs.map(f=>upload(f,'document')),...nodes.map(f=>upload(f,'network_nodes')),...edges.map(f=>upload(f,'network_edges')),...t.map(f=>upload(f,'table_data'))]);
  for(const f of d)files.push({...await upload(f,'data_dictionary'),sheet:$('#dictionary-sheet').value||null,header_row:Number($('#dictionary-header').value)});
  let network;
- if(nodes.length||edges.length){
-  if(!nodes.length||!edges.length)throw Error('请同时上传对象表和关系表。');
+ if(nodes.length||edges.length||selected?.network_files&&$('#use-example-network')?.checked){
+  if((nodes.length||edges.length)&&(!nodes.length||!edges.length))throw Error('请同时上传对象表和关系表。');
   network={kind:$('#network-kind').value,completeness:$('#network-completeness').value,description:$('#network-description').value.trim()};
  }
  let table_mapping;
@@ -62,13 +62,14 @@ async function buildUploadInput(){
  }
  return {files,...(network?{network}:{}),...(table_mapping?{table_mapping}:{})};
 }
-function inputSelection(){return {example_id:selected?.id||null,...(selected?{source_edits:Array.from(document.querySelectorAll('[data-source]')).filter(e=>e.querySelector('.include-source').checked).map(e=>({source_id:e.dataset.source,text:e.querySelector('.source-edit').value}))}:{})};}
+function inputSelection(){return {use_example_network:!!(selected?.network_files&&$('#use-example-network')?.checked),example_id:selected?.id||null,...(selected?{source_edits:Array.from(document.querySelectorAll('[data-source]')).filter(e=>e.querySelector('.include-source').checked).map(e=>({source_id:e.dataset.source,text:e.querySelector('.source-edit').value}))}:{})};}
 async function checkUploadInput(input){
  const value=await api('/api/input-preview',{question:$('#question').value.trim()||'本地文件读取预览，尚未提出识别请求。',...input,...inputSelection()});
  const r=value.receipt, data=value.factual_data, map=value.table_import;
  $('#upload-receipt').innerHTML=`<p><b>${r.ready?'材料已完成本地读取检查':'请先处理以下文件问题'}</b></p>`+
   r.files.map(f=>`<p>${esc(f.name)}：${f.characters} 字符${f.notes.length?'；'+esc(f.notes.join('；')):''}</p>`).join('')+
   (data?`<p>数值数据：${data.nodes} 个对象，${data.observed} 条结果，${data.features} 项特征。按对象编号对齐；逐条数值留在本地。</p>`:'')+
+  (value.network?`<p>关系文件：${value.network.nodes} 个对象，${value.network.edges} 对联系。已读取全部文件行。</p>`:'')+
   (map?`<p>启用编码 ${esc(map.mapping.treated_value)} → 1；未启用编码 ${esc(map.mapping.untreated_value)} → 0。未选入的列：${esc(map.unused_columns.join('、')||'无')}；其他工作表：${esc(map.other_sheets.join('、')||'无')}。</p>`:'')+
   (r.issues.length?`<ul class="message error">${r.issues.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:'')+
   `<details><summary>查看实际提取的说明文字</summary>${value.sources.map(s=>`<h4>${esc(s.label)}</h4><pre style="white-space:pre-wrap;max-height:320px;overflow:auto">${esc(s.text)}</pre>`).join('')}</details><p class="muted">${esc(r.message)}</p>`;

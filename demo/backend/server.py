@@ -11,7 +11,7 @@ from http.cookies import SimpleCookie
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-from .engine import Engine, PUBLIC
+from .engine import Engine, PUBLIC, DEFAULT_MAX_API_CALLS, DEFAULT_LONGCAT_FACT_MAX_TOKENS
 from .runtime import PROJECT_ROOT
 
 
@@ -67,6 +67,13 @@ def make_server(engine, port=8770):
                 if not owner:return self.send(401,{'error':'OPEN_HOME_FIRST'})
                 if path=='/api/health':return self.send(200,{**engine.health(owner),'csrf':sessions[owner]})
                 if path=='/api/examples':return self.send(200,engine.examples)
+                if path=='/api/example-file':
+                    from .example_materials import selected_file
+                    query=parse_qs(parsed.query)
+                    example=next((x for x in engine.examples if x['id']==query.get('id',[''])[0]),None)
+                    if example is None:return self.send(404,{'error':'EXAMPLE_FILE_NOT_FOUND'})
+                    source,name=selected_file(PROJECT_ROOT,example,query.get('role',[''])[0])
+                    return self.send(200,source.read_bytes(),'text/csv; charset=utf-8',download=name)
                 if path=='/api/run':return self.send(200,engine.view(owner,parse_qs(parsed.query)['id'][0]))
                 if path=='/api/download':
                     args=parse_qs(parsed.query);run=engine.get(owner,args['id'][0]);name=args['name'][0]
@@ -87,7 +94,7 @@ def make_server(engine, port=8770):
                 value=json.loads(self.rfile.read(size))
                 if not isinstance(value,dict):raise ValueError('JSON_OBJECT_REQUIRED')
                 if self.path=='/api/credentials':
-                    return self.send(200,engine.credential(owner,value['provider'],value.get('key','')))
+                    return self.send(200,engine.credential(owner,value['provider'],value.get('key',''),settings=value.get('settings'),reuse_key=value.get('reuse_key',False)))
                 if self.path in ('/api/table-preview','/api/input-preview'):
                     # Local only, no credentials or model request required.
                     try:
@@ -116,10 +123,11 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=8772)
     parser.add_argument('--no-browser',action='store_true')
-    parser.add_argument('--max-api-calls',type=int,default=20)
+    parser.add_argument('--max-api-calls',type=int,default=DEFAULT_MAX_API_CALLS)
+    parser.add_argument('--longcat-fact-max-tokens',type=int,default=DEFAULT_LONGCAT_FACT_MAX_TOKENS)
     args=parser.parse_args(argv)
-    if not 1<=args.max_api_calls<=200:parser.error('max-api-calls must be 1..200')
-    engine=Engine(PROJECT_ROOT/'outputs/web_runs',max_api_calls=args.max_api_calls)
+    if not 1<=args.max_api_calls<=1000:parser.error('max-api-calls must be 1..1000')
+    engine=Engine(PROJECT_ROOT/'outputs/web_runs',max_api_calls=args.max_api_calls,longcat_fact_max_tokens=args.longcat_fact_max_tokens)
     server=make_server(engine,args.port);url=f'http://127.0.0.1:{server.server_port}/'
     print('AUTOCFM_LIVE_READY '+url,flush=True)
     if not args.no_browser:threading.Timer(.5,lambda:webbrowser.open(url)).start()

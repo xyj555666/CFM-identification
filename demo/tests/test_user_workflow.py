@@ -19,6 +19,22 @@ def automatic_fixture(tmp_path,monkeypatch):
     return engine,run,calls
 
 
+def test_recovery_preserves_possible_duplicate_kind_without_deleting_candidate(tmp_path,monkeypatch):
+    engine,run,_=automatic_fixture(tmp_path,monkeypatch)
+    engine._review(run,fixture_review(run))
+    refs=run.submission['candidate']['study']['source_ids']
+    run.submission['candidate']['additional_restrictions']=[dict(text='这条说明可能已由研究定义表达。',source_ids=refs)]
+    engine._plan(run);original=deepcopy(run.submission)
+    finding=dict(kind='READING_ERROR',field='source:/additional_restrictions/0',
+        source_ids=refs,reason='既需要核对原句也需要核对字段职责',prior_restriction_role='ALREADY_REPRESENTED')
+    preview=recovery.prepare(run,allow_busy=True,audit_findings=[finding])
+    assert preview['available']
+    assert preview['feedback']['issues'][0]['kind']=='POSSIBLE_DUPLICATION'
+    plain=dict(finding);plain.pop('prior_restriction_role')
+    assert recovery.prepare(run,allow_busy=True,audit_findings=[plain])['feedback']['issues'][0]['kind']=='OMITTED_OR_MISREAD'
+    assert run.submission==original and not run.reviews
+
+
 def test_background_reading_stops_for_explicit_science_then_point_replay(tmp_path,monkeypatch):
     engine,run,calls=automatic_fixture(tmp_path,monkeypatch)
     engine._continue_automatically(run)
@@ -204,3 +220,21 @@ def test_recovery_cannot_guess_audit_field_or_source_or_rewrite_unknown(tmp_path
     finding={**issue,'reason':'必须保留原文中尚未决定的条件，不能默认批准。'}
     assert not recovery.prepare(run,allow_busy=True,audit_findings=[finding])['available']
     assert run.submission==original and not run.reviews
+
+
+def test_target_reread_preserves_input_invalidates_reviews_and_runs_only_once(tmp_path, monkeypatch):
+    engine, run, _ = automatic_fixture(tmp_path, monkeypatch)
+    original_case = deepcopy(run.case)
+    feedback = {'issues': [{'field': 'queries.q1.comparison_order', 'reason': '方向与原文不符'}]}
+    run.reviews = {'accepted': True}
+    run.plan = {'stale': True}
+    run.result = {'state': 'POINT'}
+    seen = []
+    monkeypatch.setattr(engine, '_read_case', lambda current, **kwargs: seen.append((deepcopy(current.case), kwargs)))
+    assert engine._reread_business(run, feedback)
+    assert seen == [(original_case, {'target_feedback': feedback})]
+    assert run.case == original_case and run.query_review is None
+    assert run.entry is None and run.submission is None and run.plan is None and run.result is None
+    assert not run.reviews and not run.review_sheets and not run.review_templates
+    assert run.artifacts['target_reread_prior']['feedback'] == feedback
+    assert not engine._reread_business(run, feedback) and len(seen) == 1

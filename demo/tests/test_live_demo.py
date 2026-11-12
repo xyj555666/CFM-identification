@@ -141,7 +141,7 @@ def test_edited_example_sources_are_new_input_not_saved_result(tmp_path,monkeypa
     engine=Engine(tmp_path/'runs')
     def stop(*args):raise ValueError('STOP_BEFORE_REAL_MODEL')
     monkeypatch.setattr(engine,'call',stop)
-    rid=engine.start('a',dict(question='只评价第一家门店的结果。',allow_send=True,example_id='n60',
+    rid=engine.start('a',dict(question='只评价第一家门店的结果。',allow_send=True,example_id='n100',
         source_edits=[dict(source_id='science',text='负责人尚未决定是否采用一致性。')]))
     run=wait(engine.get('a',rid))
     assert [s['source_id'] for s in run.case['sources']]==['science']

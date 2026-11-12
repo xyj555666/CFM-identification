@@ -13,6 +13,32 @@ from examples.network_effect_dispatch_reference import setup, approval_records, 
 from examples.business_dispatch_reference import approve
 
 
+def test_located_recheck_inherits_current_effect_field_ownership_without_answers():
+    from cfm_id_llm.fact_reading_contracts import contract_for_entry
+    s,e,o,_=setup()
+    contract=contract_for_entry(e)
+    schema=json.JSONDecoder().raw_decode(e['request']['user'])[0]['output_schema']
+    for name in ('information','additional_restrictions','unresolved'):
+        path=f'/{name}/0/text'
+        rules=contract.public_constraints(e,[path])
+        assert dict(field_path=path,description=schema['properties'][name]['description']) in rules
+    assert not any(r.get('description')==schema['properties']['additional_restrictions']['description']
+                   for r in contract.public_constraints(e,['/additional_restrictions_other/0']))
+    o['candidate']['additional_restrictions']=[dict(text='原文的一条待核对说明',source_ids=o['candidate']['study']['source_ids'])]
+    prepared=revisions.prepare_recheck(s,'q1',**o)
+    sheet=prepared['feedback_worksheet']
+    feedback=dict(version=sheet['version'],binding_sha256=sheet['binding_sha256'],authority='SYNTHETIC_TEST',
+        reviewer='Offline contract test',evidence='Only locate a possible duplicate without supplying corrected values.',
+        issues=[dict(field_path='/additional_restrictions/0',kind='POSSIBLE_DUPLICATION',
+                     source_ids=[next(iter(sheet['source_catalog']))],reason='private reviewer diagnosis must stay local')])
+    revised=revisions.prepare_recheck(s,'q1',**o,feedback=feedback)
+    assert revised['state']=='READY_TO_READ'
+    request=revised['request']['user']
+    assert schema['properties']['additional_restrictions']['description'] in request
+    assert 'private reviewer diagnosis' not in request
+    assert 'POSSIBLE_DUPLICATION' in request
+
+
 @pytest.mark.parametrize('field,value,phrase', [
     ('graph_kind','UNKNOWN','是否有方向'),
     ('edge_list_complete',None,'全部关系'),

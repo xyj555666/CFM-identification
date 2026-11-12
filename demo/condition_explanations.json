@@ -1,0 +1,187 @@
+{
+  "consistency": {
+    "label": "记录对应实际安排",
+    "meaning": "实际记录的结果，对应每个对象实际接受的处理。在网络研究中，要连同其他对象的安排一起考虑。",
+    "purpose": "把数据中的结果与要比较的因果情形联系起来；并不假定对象之间没有影响。"
+  },
+  "full_vector_randomization": {
+    "label": "整份安排由随机分配产生",
+    "meaning": "处理安排与各对象在不同安排下可能出现的结果相互独立。试验可按组或分阶段抽签，不要求各对象分别独立抽签。",
+    "purpose": "避免处理名单因对象本来可能出现的结果而被挑选，从而支持试验中的因果比较。"
+  },
+  "assignment_outcome_independence": {
+    "label": "整份安排由随机分配产生",
+    "meaning": "处理安排与各对象在不同安排下可能出现的结果相互独立。试验可按组或分阶段抽签，不要求各对象分别独立抽签。",
+    "purpose": "避免处理名单因对象本来可能出现的结果而被挑选，从而支持试验中的因果比较。"
+  },
+  "known_assignment_law": {
+    "label": "分配规则已知",
+    "meaning": "知道试验如何抽签，以及各份完整安排的概率。只知道这次实际选中了谁，还不够。",
+    "purpose": "计算比较情形出现的概率，以及应怎样对其余安排取平均。"
+  },
+  "fixed_pretreatment_network": {
+    "label": "关系网在处理前确定",
+    "meaning": "本次使用的关系网在实施处理前就已确定，不随处理安排改变。",
+    "purpose": "固定“谁会影响谁”的范围，避免用处理后才形成的关系重新定义同伴。"
+  },
+  "finite_conditional_first_moments": {
+    "label": "所需平均值存在且有限",
+    "meaning": "公式用到的平均结果必须有定义，且不是无穷大。如果结果按定义只能取0或1，这一要求自然满足。",
+    "purpose": "保证公式中的平均和差值有数学意义；不要求每个对象的结果相同。"
+  },
+  "finite_conditional_means": {
+    "label": "所需平均值存在且有限",
+    "meaning": "公式用到的平均结果必须有定义，且不是无穷大。如果结果按定义只能取0或1，这一要求自然满足。",
+    "purpose": "保证公式中的平均和差值有数学意义；不要求每个对象的结果相同。"
+  },
+  "full_vector_conditional_exchangeability": {
+    "label": "给定背景后，安排不再受潜在结果影响",
+    "meaning": "在本次固定的处理前背景内，整份处理安排与各对象在不同安排下可能出现的结果相互独立。",
+    "purpose": "在非随机试验中，允许按声明的背景作因果比较。这是研究假设，不能仅凭观测数据判定成立。"
+  },
+  "exposure_level_conditional_exchangeability": {
+    "label": "同一分层内，不同实际分组具有可比的平均结果",
+    "meaning": "在同一处理前分层和背景内，如果把各实际分组都放到同一种本人及同伴状态，其平均结果相同。",
+    "purpose": "使同一分层内观察到的平均结果可以用于因果比较；不意味着不同处理本身没有效果。"
+  },
+  "local_covariate_exposure_mean_exchangeability": {
+    "label": "按本人和邻居特征比较后，平均结果可比",
+    "meaning": "在本人的处理前特征、邻居中特征为1的人数及固定背景相同的范围内，如果都采用同一种本人及同伴状态，不同实际分组的平均结果相同。",
+    "purpose": "说明本方法具体用哪些特征控制分组差异，不能自动改成任意特征或任意邻居汇总。"
+  },
+  "potential_outcome_exposure_sufficiency": {
+    "label": "本人和同伴状态足以决定个体结果",
+    "meaning": "对每个评价对象，只要本人处理和定义好的同伴状态相同，换成其他完整处理名单，也不会改变该对象的潜在结果。",
+    "purpose": "允许用较少的状态代替整份处理名单。这比仅要求平均结果相同更强，也不是定义了同伴状态就自动成立。"
+  },
+  "mean_sufficiency_all_assignments_and_weighted_nodes": {
+    "label": "本人和同伴状态足以决定平均结果",
+    "meaning": "对评价名单中的每个对象，只要本人处理和同伴状态相同，不同完整安排下的平均结果就相同。",
+    "purpose": "允许把相同状态的安排合并使用；只约束平均值，不要求每次结果完全相同。"
+  },
+  "conditional_mean_sufficiency_all_assignments_and_weighted_nodes": {
+    "label": "同一背景内，本人和同伴状态足以决定平均结果",
+    "meaning": "在本次固定背景内，对每个评价对象，本人处理和同伴状态相同的完整安排具有相同平均结果。",
+    "purpose": "在声明的背景内合并安排，不能据此推到其他背景。"
+  },
+  "mean_sufficiency_all_assignments_and_all_model_nodes": {
+    "label": "模型中每个对象均满足平均结果的状态简化",
+    "meaning": "对模型中的全部对象和全部完整安排，本人处理及同伴状态相同，就有相同的平均结果。",
+    "purpose": "有限模型的求界会用到整个模型；不能只对最终评价名单作这一声明。"
+  },
+  "first_stage_profile_no_direct_outcome_effect": {
+    "label": "最初的名额方案没有额外影响",
+    "meaning": "如果最终每个对象接受的处理都一样，仅改变第一阶段抽到的名额方案，不会额外改变结果。",
+    "purpose": "否则最终名单相同的两次安排仍可能有不同结果，不能只按最终处理名单计算。"
+  },
+  "recursive_scm_and_perfect_intervention": {
+    "label": "干预只改变指定变量的产生方式",
+    "meaning": "按没有循环反馈的因果模型分析，各结构方程的外部噪声独立；干预固定指定变量，其他变量仍按原机制产生。已声明的潜在共同原因通过图中的潜变量表达。",
+    "purpose": "让“主动设定某变量”的含义明确，不能把观察到某个取值直接当成干预。"
+  },
+  "complete_causal_graph_and_latents": {
+    "label": "因果图包含本次采用的关系",
+    "meaning": "研究采用的直接因果关系已列明；哪些共同原因没有被观测，也已明确。",
+    "purpose": "后门、前门等检查依据这张图。漏掉共同原因可能改变结论。"
+  },
+  "population_law_and_strict_positivity": {
+    "label": "观测分布及所需取值范围可用",
+    "meaning": "方法所需的观测变量联合分布是可用信息；公式要求比较的条件在总体中有正概率。",
+    "purpose": "避免用根本不可能出现的情形作比较。总体正概率不等于本次有限样本一定观察到了它。"
+  },
+  "no_between_unit_interference": {
+    "label": "不同研究对象之间不相互影响",
+    "meaning": "改变一个对象的处理，不会改变另一个对象的结果。",
+    "purpose": "这是本次变量因果图分析采用的条件；不能把它自动用于存在同伴影响的网络问题。"
+  },
+  "target_and_variable_roles": {
+    "label": "问题与变量定义一致",
+    "meaning": "所比较的处理、关注的结果和其他观察变量，均沿用本题确认的定义。",
+    "purpose": "确保公式回答的是用户提出的问题，而不是另一种处理、结果或比较。"
+  },
+  "target_averaging_and_population_information_scope": {
+    "label": "信息覆盖本次评价的人群和背景",
+    "meaning": "采用的信息与研究目标对应同一批对象和背景，并按目标要求的方式取平均。",
+    "purpose": "避免拿另一批人、另一时期或另一种平均方式的结果回答本题。"
+  },
+  "exact_a4_values_and_complete_information_scope": {
+    "label": "总体信息及可用范围已明确",
+    "meaning": "列出的数值按本模型视为精确总体均值，而且这些就是本模型允许使用的全部总体信息。",
+    "purpose": "求最紧界限需要明确哪些信息可用。一次有限样本算出的平均数不能直接充当精确总体均值。"
+  },
+  "scientific_bounds_kind_scope_units_and_all_nodes": {
+    "label": "结果或平均结果的上下限已明确",
+    "meaning": "本题指定了界限约束的是单次结果还是平均结果、上下限数值，以及适用的对象、时期和安排。",
+    "purpose": "求界必须依据明确的范围，不能用样本中的最小值和最大值冒充科学界限。"
+  },
+  "no_additional_coupling_constraints": {
+    "label": "没有未列出的联合限制",
+    "meaning": "除已列出的条件和界限，不再增加把不同对象或不同处理安排的结果联系起来的限制。",
+    "purpose": "额外的关联限制可能缩小界限；要称为最紧界限，必须说明它是相对哪个完整模型而言。"
+  },
+  "only_declared_mean_orders_and_bounds": {
+    "label": "仅采用已经列明的限制",
+    "meaning": "本模型只采用列出的基础条件、上下限和平均结果顺序，没有其他限制。",
+    "purpose": "明确求界的假设范围。没有提到某项限制，不等于已经声明不存在其他限制。"
+  },
+  "mean_order_outcome_axes_scope_and_assumption_basis": {
+    "label": "采用明确的平均结果顺序",
+    "meaning": "本题另行假定某些安排下的平均结果不低于或不高于另一些安排；方向、对象和适用安排按正式条件逐项确定。",
+    "purpose": "这一顺序可能缩小界限，但不能从“越多越好”等业务愿望自动推出。"
+  },
+  "a4_population_operator": {
+    "label": "可用的是哪些总体信息",
+    "meaning": "按研究说明采用相应总体分布或总体均值，覆盖范围必须与目标一致。实际收集到的有限记录另用于估计。",
+    "purpose": "识别讨论总体规律能确定什么；有限记录还带有抽样误差，不能悄悄升级成精确总体信息。"
+  },
+  "a4_operator_scope_and_provenance": {
+    "label": "可用的是哪些总体信息",
+    "meaning": "按研究说明采用相应总体分布或总体均值，覆盖范围必须与目标一致。实际收集到的有限记录另用于估计。",
+    "purpose": "识别讨论总体规律能确定什么；有限记录还带有抽样误差，不能悄悄升级成精确总体信息。"
+  },
+  "a4_source": {
+    "label": "可用的是哪些总体信息",
+    "meaning": "按研究说明采用相应总体分布或总体均值，覆盖范围必须与目标一致。实际收集到的有限记录另用于估计。",
+    "purpose": "识别讨论总体规律能确定什么；有限记录还带有抽样误差，不能悄悄升级成精确总体信息。"
+  },
+  "fixed_background_is_pretreatment_common_population": {
+    "label": "比较时保持同一个处理前背景",
+    "meaning": "本题指定的背景在处理前确定，并在两种情形中保持一致；不改成对不同背景取平均。",
+    "purpose": "背景不同可能变成另一个研究问题，不能在读取或计算时自行更换。"
+  },
+  "conditioning_is_only_fixed_pretreatment_study_background": {
+    "label": "比较时保持同一个处理前背景",
+    "meaning": "本题指定的背景在处理前确定，并在两种情形中保持一致；不改成对不同背景取平均。",
+    "purpose": "背景不同可能变成另一个研究问题，不能在读取或计算时自行更换。"
+  },
+  "assignment_law_and_randomization_given_fixed_background": {
+    "label": "同一背景下按声明规则随机分配",
+    "meaning": "在固定的处理前背景内，完整分配按已知规则产生，并与潜在结果独立。",
+    "purpose": "随机化与概率计算都针对本题的背景，不直接套用另一背景的分配概率。"
+  },
+  "a4_information_given_fixed_background": {
+    "label": "信息对应同一个固定背景",
+    "meaning": "本次可用的总体信息，是在目标所指定的同一个处理前背景下定义的。",
+    "purpose": "防止把跨背景的整体平均代入只问某一背景的公式。"
+  },
+  "scientific_constraints_given_fixed_background": {
+    "label": "所有限制适用于同一背景",
+    "meaning": "本题采用的结果界限、均值条件和其他限制，都适用于同一个已确认背景。",
+    "purpose": "不能把只在其他背景成立的条件借来缩小本题的界限。"
+  },
+  "complete_positive_assignment_support": {
+    "label": "可能出现的完整安排已列全",
+    "meaning": "在所给背景下，所有具有正概率的完整处理安排都已列出。",
+    "purpose": "遗漏可出现的安排会改变加权结果与支持检查。"
+  },
+  "means_for_all_positive_assignments": {
+    "label": "各个可能安排的总体均值可用",
+    "meaning": "对于表中每一种具有正概率的安排，所需对象的总体平均结果均有对应信息。",
+    "purpose": "保证公式用到的安排均有相应信息，不能用缺失项默认填零。"
+  },
+  "same_study_and_conditioning": {
+    "label": "信息与问题属于同一研究",
+    "meaning": "用于计算的信息，与研究目标对应同一研究、对象定义和固定背景。",
+    "purpose": "避免把不同研究或不同条件下的结果直接拼接。"
+  }
+}

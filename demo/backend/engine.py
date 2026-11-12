@@ -10,7 +10,7 @@ import threading
 import time
 
 from .runtime import PROJECT_ROOT, identification_modules
-from .provider import PROVIDERS, make_provider, generate
+from .provider import PROVIDERS, make_provider, generate, provider_catalog, connection_options, public_connection
 
 project, intake, dispatch = identification_modules()
 from cfm_id import business_field_review
@@ -20,10 +20,32 @@ from . import capabilities
 
 PUBLIC = PROJECT_ROOT / 'demo'
 MAX_UPLOAD = 20 * 1024 * 1024
+DEFAULT_OUTPUT_TOKENS = 16384
+DEFAULT_LONGCAT_FACT_MAX_TOKENS = 32768
+DEFAULT_MAX_API_CALLS = 1000
 
 
 def plain(value):
     return value.model_dump(mode='json') if hasattr(value, 'model_dump') else value
+
+
+def local_target_conflict(entry, candidate):
+    """Report a disagreement for rereading; neither model output is evidence of intent."""
+    if entry.get('reader_id') != 'NETWORK_RANDOMIZED_EFFECT_FACTS':
+        return None
+    target = candidate.get('target', {})
+    ends = [target.get(side, {}) for side in ('first', 'second')]
+    if any(not end.get('source_ids') or any(type(end.get(k)) is not int for k in ('own','exposure')) for end in ends):
+        return None
+    own_changes = ends[0]['own'] != ends[1]['own']
+    peers_change = ends[0]['exposure'] != ends[1]['exposure']
+    kinds = {(True,False):'DIRECT_EFFECT', (False,True):'SPILLOVER_EFFECT', (True,True):'LOCAL_TOTAL_EFFECT'}
+    implied = kinds.get((own_changes, peers_change))
+    a0 = entry['selected_query']['target']['kind']
+    if implied is None or a0 not in kinds.values() or target.get('kind') not in kinds.values() or implied == a0:
+        return None
+    return dict(query_id=entry['query_id'], initial_kind=a0, fact_kind=target['kind'], endpoint_kind=implied,
+                endpoints=[[end['own'],end['exposure']] for end in ends])
 
 
 def pending(sheet, authority):
@@ -63,6 +85,7 @@ class Run:
     network: object = None
     synthetic: bool = False
     provider: str = 'longcat'
+    model_settings: dict = field(default_factory=dict)
     automatic_review: bool = False
     automatic_rechecks: int = 0
     automatic_audit_repairs: int = 0
@@ -78,35 +101,57 @@ class Run:
 
 
 class Engine:
-    def __init__(self, storage, *, max_api_calls=20, provider_factory=make_provider):
+    def __init__(self, storage, *, max_api_calls=DEFAULT_MAX_API_CALLS, provider_factory=make_provider, longcat_fact_max_tokens=DEFAULT_LONGCAT_FACT_MAX_TOKENS):
+        if type(longcat_fact_max_tokens) is not int or not 1<=longcat_fact_max_tokens<=262144:raise ValueError('Invalid output token limit')
+        self.longcat_fact_max_tokens=longcat_fact_max_tokens
+        self.connection_settings={}
         self.storage = Path(storage).resolve(); self.storage.mkdir(parents=True, exist_ok=True)
         self.runs = {}; self.credentials = {}; self.calls = 0; self.max_api_calls = max_api_calls
         self.provider_factory = provider_factory; self.lock = threading.RLock()
         self.examples = json.loads((PUBLIC/'examples.json').read_text('utf8'))
         self.web_capabilities = capabilities.inventory()
 
-    def credential(self, owner, provider, key):
+    def credential(self, owner, provider, key, *, settings=None, reuse_key=False):
         if provider not in PROVIDERS: raise ValueError('UNKNOWN_PROVIDER')
+        if type(reuse_key) is not bool: raise ValueError('MODEL_SETTINGS_INVALID')
         if not isinstance(key, str) or len(key)>2048 or any(c.isspace() for c in key):
             raise ValueError('INVALID_API_KEY')
         with self.lock:
-            if key: self.credentials[owner] = (provider, key, time.time())
-            else: self.credentials.pop(owner, None)
+            if reuse_key:
+                current=self.credentials.get(owner)
+                if key or current is None or time.time()-current[2]>8*3600:
+                    raise ValueError('API_KEY_REQUIRED')
+                if current[0]!=provider:raise ValueError('PROVIDER_CREDENTIAL_MISMATCH')
+                key=current[1]
+            if key:
+                if any(r.owner==owner and r.busy for r in self.runs.values()):
+                    raise ValueError('RUN_ALREADY_BUSY')
+                options=connection_options(provider, settings)
+                if reuse_key and options['base_url']!=self.connection_settings.get(owner,PROVIDERS[provider])['base_url']:
+                    raise ValueError('PROVIDER_CREDENTIAL_MISMATCH')
+                self.credentials[owner] = (provider, key, time.time())
+                self.connection_settings[owner] = options
+            else:
+                self.credentials.pop(owner, None)
+                self.connection_settings.pop(owner, None)
         return {'configured': bool(key), 'provider': provider, 'stored': 'PROCESS_MEMORY_ONLY'}
 
     def health(self, owner):
         with self.lock:
             credential=self.credentials.get(owner)
             if credential and time.time()-credential[2]>8*3600:
-                self.credentials.pop(owner,None); credential=None
+                self.credentials.pop(owner,None); self.connection_settings.pop(owner,None); credential=None
             return dict(ready=True, configured=credential is not None,
-                provider=credential[0] if credential else 'longcat', providers=PROVIDERS,
+                provider=credential[0] if credential else 'longcat', providers=provider_catalog(),
+                model_settings=deepcopy(self.connection_settings.get(owner,{})) if credential else {},
                 features=['located_fact_recheck','background_reading_review','typed_assumption_choices','typed_reading_audit',
                           'information_data_descriptions','explicit_audit_findings','network_file_input','local_input_preview'],
                 reading_config=capabilities.reading_config().model_dump(mode='json'),
                 identification_capabilities=self.web_capabilities,
                 condition_terms=capabilities.presentation_catalog(),
-                model_calls=self.calls, call_limit=self.max_api_calls)
+                model_calls=self.calls, call_limit=self.max_api_calls,
+                output_token_limits=dict(default=DEFAULT_OUTPUT_TOKENS,
+                                         longcat_facts=self.longcat_fact_max_tokens))
 
     def get(self, owner, run_id):
         with self.lock:
@@ -173,24 +218,28 @@ class Engine:
         threading.Thread(target=work,daemon=True).start()
 
     def start(self, owner, payload):
-        if payload.get('use_example_data'):
-            raise ValueError('ESTIMATION_NOT_IN_IDENTIFICATION_DEMO')
+        if payload.get('use_example_data'):raise ValueError('ESTIMATION_NOT_IN_IDENTIFICATION_DEMO')
         if payload.get('allow_send') is not True:raise ValueError('EXTERNAL_DOCUMENT_SHARING_CONSENT_REQUIRED')
         question=payload.get('question','')
         if not isinstance(question,str) or not 3<=len(question.strip())<=25000:raise ValueError('BUSINESS_QUESTION_REQUIRED')
         run=Run(owner=owner,synthetic=payload.get('synthetic') is True,
                 automatic_review=payload.get('automatic_review') is True)
-        if len(self.runs)>=100:raise ValueError('LOCAL_RUN_LIMIT_RESTART_SERVER')
         with self.lock:
-            selected=payload.get('provider');credential=self.credentials.get(owner)
+            if any(other.owner==owner and other.busy for other in self.runs.values()):
+                raise ValueError('RUN_ALREADY_BUSY')
+            if len(self.runs)>=100:raise ValueError('LOCAL_RUN_LIMIT_RESTART_SERVER')
+            credential=self.credentials.get(owner)
+            selected=payload.get('provider')
             if selected is not None:
                 if selected not in PROVIDERS:raise ValueError('UNKNOWN_PROVIDER')
                 if credential is None or time.time()-credential[2]>8*3600:raise ValueError('API_KEY_REQUIRED')
                 if selected!=credential[0]:raise ValueError('PROVIDER_CREDENTIAL_MISMATCH')
             run.provider=selected or (credential[0] if credential else 'longcat')
+            run.model_settings=deepcopy(self.connection_settings.get(owner,PROVIDERS[run.provider]))
             self.runs[run.id]=run
-        # Input is snapshotted; later edits in the browser start a different run.
-        self.launch(run,self._start,deepcopy(payload));return run.id
+            # Reserve busy under the same owner lock before another start can enter.
+            self.launch(run,self._start,deepcopy(payload))
+        return run.id
 
     def preview_uploads(self, owner, payload):
         run=Run(owner=owner)
@@ -198,10 +247,11 @@ class Engine:
         return dict(receipt=run.attachment_report['receipt'],
             factual_data=run.attachment_report.get('factual_data'),
             table_import=run.artifacts.get('table_import_manifest'),
+            network=run.attachment_report.get('network'),
             sources=[s for s in run.case['sources'] if s['source_id'].startswith('att_')])
 
     def _start(self, run, payload, *, preview_only=False):
-        self.event(run,'PREPARING','读取业务原文与上传材料')
+        self.event(run,'PREPARING','正在读取问题和附件')
         uploads=payload.get('files',[])
         if not isinstance(uploads,list) or len(uploads)>MAX_ATTACHMENTS:raise ValueError('AT_MOST_TEN_UPLOADS')
         folder=self.storage/run.id/'uploads';folder.mkdir(parents=True,exist_ok=True)
@@ -227,7 +277,7 @@ class Engine:
             else:raise ValueError('IDENTIFICATION_DOCUMENT_UPLOAD_ONLY')
         report=create_intake(case_id=run.id,business_question=payload['question'].strip(),attachments=requests)
         case=report.case.model_dump(mode='json');run.attachment_report=report.model_dump(mode='json',exclude={'case'})
-        example_id=payload.get('example_id')
+        example_id=payload.get('example_id'); network_declaration=payload.get('network')
         if example_id:
             example=next((x for x in self.examples if x['id']==example_id),None)
             if example is None:raise ValueError('EXAMPLE_NOT_FOUND')
@@ -245,10 +295,19 @@ class Engine:
                     if len(text)>25000 or characters>80000:raise ValueError('EXAMPLE_SOURCE_SIZE_LIMIT')
                     seen.add(sid);selected.append({**originals[sid],'text':text})
             case['sources']=selected+case['sources']
+            use_network=payload.get('use_example_network', 'source_edits' not in payload)
+            if type(use_network) is not bool:raise ValueError('INVALID_EXAMPLE_NETWORK_SELECTION')
+            if use_network and example.get('network_files') and not network_paths:
+                from .example_materials import selected_file
+                for item in example['network_files']['files']:
+                    path,name=selected_file(PROJECT_ROOT,example,item['role'])
+                    target=folder/name;target.write_bytes(path.read_bytes());network_paths[item['role']]=target
+                if network_declaration is None:network_declaration=deepcopy(example['network_files']['declaration'])
+                self.save(run,'example_network_selection',dict(example_id=example_id,files=[p.name for p in network_paths.values()],declaration=network_declaration))
         if network_paths:
             if set(network_paths)!={'network_nodes','network_edges'}:raise ValueError('请同时上传对象表和关系表。')
             from cfm_id_llm.network_files import load_network
-            run.network=load_network(network_paths['network_nodes'],network_paths['network_edges'],payload.get('network'))
+            run.network=load_network(network_paths['network_nodes'],network_paths['network_edges'],network_declaration)
         elif payload.get('network') is not None:raise ValueError('填写网络说明时，请同时上传对象表和关系表。')
         if table_path:
             from cfm_id_llm.record_files import read_records
@@ -277,15 +336,20 @@ class Engine:
             run.result=dict(state='NEEDS_INPUT',reason_code='ATTACHMENT_EXTRACTION_INCOMPLETE',backend_called=False,
                 independent_replay=False,message='部分附件未读完整，请按上传回执修正文件，再开始读取。',
                 clarification_questions=run.attachment_report['receipt']['issues'])
-            self.event(run,'STOPPED','附件未完整读取，尚未调用模型；请修正上传文件后重新提交。')
+            self.event(run,'STOPPED','部分附件读取失败，请检查文件后重新提交。尚未调用模型。')
             return
         self._read_case(run)
 
-    def _read_case(self,run):
+    def _read_case(self,run, *, target_feedback=None):
+        if run.automatic_review and self._check_material_counts(run):return
         config=capabilities.reading_config()
         run.intake=intake.start_configured(run.case,config);self.save(run,'reading_config',config)
         request=intake.prepare_request(run.intake)
-        self.event(run,'READING','LLM 正在读取用户目标、两端和评价对象')
+        if target_feedback is not None:
+            request=deepcopy(request)
+            request['user_prompt']+='\n\n'+json.dumps(dict(
+                reread_reason=target_feedback, instruction='后台在当前业务解释中定位到问题，以上反馈及候选均不是业务证据。请独立重读原文，并按实际字段定义重新返回整份 A0。若涉及局部效应类别，分别核对两端本人与同伴的状态是否变化。保留未定内容和所有问题，不增加科学条件。'),ensure_ascii=False)
+        self.event(run,'READING','正在读取研究问题、比较方式和评价对象')
         candidate=self.call(run,request,'a0')
         run.intake=intake.receive_candidate(run.intake,candidate,request_sha256=request['request_sha256'])
         self.save(run,'intake',run.intake)
@@ -310,28 +374,34 @@ class Engine:
             self.save(run,'intake',run.intake)
             inspected=intake.inspect(run.intake);self.save(run,'reading_inspection',inspected)
         if inspected['state']!='SEMANTIC_REVIEW_REQUIRED':
+            if run.automatic_review and self._review_intake_stop(run,inspected):return
             run.result=inspected;self.event(run,'STOPPED','读取未通过程序检查；请查看具体原因。');return
         run.queries=inspected['report']['draft']['queries']
-        self.event(run,'SELECT_QUERY','业务目标已整理，请选择本次要检查的问题。')
+        self.event(run,'SELECT_QUERY','已读取研究问题，请选择本次分析的问题。')
         if len(run.queries)==1:self._select(run,run.queries[0]['query_id'])
 
     def call(self,run,request,stage):
         with self.lock:
             cred=self.credentials.get(run.owner)
             if cred is None or time.time()-cred[2]>8*3600:raise ValueError('API_KEY_REQUIRED')
+            if cred[0]!=run.provider:raise ValueError('PROVIDER_CREDENTIAL_MISMATCH')
+            options=deepcopy(self.connection_settings.get(run.owner,PROVIDERS[run.provider]))
+            if run.model_settings and options!=run.model_settings:raise ValueError('MODEL_SETTINGS_CHANGED_NEW_RUN_REQUIRED')
+            if not run.model_settings:run.model_settings=deepcopy(options)
             if self.calls>=self.max_api_calls:raise ValueError('LOCAL_API_CALL_LIMIT')
             alias,key,_=cred;self.calls+=1
-        run.provider=alias;options=PROVIDERS[alias]
+        run.provider=alias
         self.save(run,stage+'_request',request)
         # Clearing a browser key during an in-flight request must not remove
         # that request's redaction boundary.
         def observe(text):self.save(run,stage+'_raw_response',self._clean({'content':text},(key,)))
-        client=self.provider_factory(**options,api_key=key,timeout=300,max_tokens=16384,observer=observe)
+        limit=self.longcat_fact_max_tokens if alias=='longcat' and stage=='facts' else DEFAULT_OUTPUT_TOKENS
+        client=self.provider_factory(**options,api_key=key,timeout=300,max_tokens=limit,observer=observe)
         try:
             value=generate(client,request,fact=stage=='facts')
             value=self._clean(value,(key,));self.save(run,stage+'_candidate',value);return value
         finally:
-            self.save(run,stage+'_transport',dict(provider=alias,model=options['model'],
+            self.save(run,stage+'_transport',dict(provider=alias,model=options['model'],base_url=options['base_url'],
                 diagnostics=client.last_diagnostics,automatic_retries=0))
             client.api_key=None;key=None
 
@@ -371,7 +441,7 @@ class Engine:
         else:raise ValueError('UNKNOWN_ACTION')
 
     def _retry_reading(self,run):
-        self.event(run,'PREPARING','按用户请求重新进行后台读取复核，原材料保持不变')
+        self.event(run,'PREPARING','正在重新核对原材料')
 
     def _clarify(self,run,text):
         number=1+sum(k.startswith('input_revision_') for k in run.artifacts)
@@ -385,7 +455,7 @@ class Engine:
         run.review_kind=None;run.review_sheets={};run.review_templates={};run.user_question=None
         run.automatic_rechecks=0;run.automatic_audit_repairs=0;run.automatic_a0_format_repairs=0;run.automatic_fact_format_repairs=0
         run.automatic_focused_stages.clear()
-        self.event(run,'PREPARING','已保存补充说明，重新核对本次问题；旧审核不直接沿用')
+        self.event(run,'PREPARING','已保存补充说明，正在重新检查')
         self._read_case(run)
 
     def _recheck(self,run,entry,feedback):
@@ -394,7 +464,7 @@ class Engine:
         self.save(run,f'feedback_recheck_{number}',feedback)
         for name in ('facts_request','facts_candidate','facts_raw_response','facts_transport'):
             if name in run.artifacts:self.save(run,f'{name}_before_recheck_{number}',run.artifacts[name])
-        self.event(run,'READING_RECHECK','正在按原材料复核标出的说明；不会自动增加条件或接受改动')
+        self.event(run,'READING_RECHECK','正在核对标出的说明')
         raw=self._read_facts(run,entry)
         # New candidate invalidates old source/science/change approvals.
         run.entry=entry
@@ -456,16 +526,45 @@ class Engine:
     def _continue_automatically(self,run):
         from . import automatic_review as audit
         from . import recovery
+        from . import note_review
+        # A classified input gap already has a source-bound user question.
+        # Do not erase it when launch() continues after the initial read.
+        if run.result is not None:return
         run.user_question=None
         for _ in range(8):
             # A query gate can stop before a fact reader is available. Do not
             # audit that already-final result again merely because the former
             # query worksheet is still present.
             if run.result is not None:return
+            if run.review_kind=='notes':
+                self.event(run,'REVIEWING_READING','正在检查尚未明确的说明')
+                request,fields,sources=note_review.request(run)
+                number=1+sum(k.startswith('note_audit_') and k.endswith('_request') for k in run.artifacts)
+                stage=f'note_audit_{number}'
+                answer=note_review.check(run,self.call(run,request,stage),fields,sources)
+                self.save(run,stage+'_validated',answer)
+                if answer['reading_errors']:
+                    # Keep a located model error distinct from missing material.
+                    # Existing bounded re-reading retains the old candidate and
+                    # invalidates previous source/science approvals.
+                    preview=recovery.prepare(run,allow_busy=True)
+                    if run.automatic_rechecks<1 and preview['available']:
+                        entry,feedback=recovery.request(run,preview['binding_sha256'],allow_busy=True)
+                        run.automatic_rechecks+=1;self._recheck(run,entry,feedback);continue
+                    run.error=dict(code='READING_NOTE_RECHECK_REQUIRED',message='The note audit located a reading error; no scientific conditions were approved.')
+                    self.event(run,'STOPPED','系统对材料的解释仍有分歧，尚未开始识别；不必补充条件来修复模型错误。')
+                    return
+                run.stage='REVIEW_REQUIRED'
+                self._review(run,dict(kind='notes',records=answer['records']))
+                if answer['questions']:
+                    run.user_question=dict(kind='NEEDS_CLARIFICATION',items=answer['questions'],message='原材料还不能确定以下内容。')
+                    self.event(run,'REVIEW_REQUIRED','请补充以下信息')
+                    return
+                continue
             if run.review_kind not in audit.STAGES:return
             # Audit first: residual notes can be genuine restrictions. Spend
             # the bounded reread only on a located model-reading error.
-            self.event(run,'REVIEWING_READING','正在后台核对业务解释与原文来源，不需要逐字段操作')
+            self.event(run,'REVIEWING_READING','正在核对读取结果与原文')
             request,fields,sources=audit.request(run)
             number=1+sum(k.startswith('reading_audit_') and k.endswith('_request') for k in run.artifacts)
             stage=f'reading_audit_{number}'
@@ -496,7 +595,7 @@ class Engine:
                 run.automatic_focused_stages.add(focus_scope)
                 focus_stage = 'focused_audit' if not run.artifacts.get('focused_audit_completed') else 'focused_audit_'+focus_scope
                 self.save(run,focus_stage+'_completed',dict(started=True,scope=focus_scope,fields=list(disputed)))
-                self.event(run,'REVIEWING_READING','后台正在定位复核有分歧的解释；原文和候选保持不变')
+                self.event(run,'REVIEWING_READING','正在检查有冲突的读取结果')
                 followup=audit.check_focused(self.call(run,focused,focus_stage),disputed,sources)
                 self.save(run,focus_stage+'_validated',followup)
                 answer=audit.reconcile(answer,followup,disputed)
@@ -504,6 +603,9 @@ class Engine:
             if answer['verdict']=='PASS':
                 run.stage='REVIEW_REQUIRED'
                 self._review(run,audit.records(run,answer));continue
+            if answer['verdict']=='READING_ERROR' and run.review_kind=='query':
+                if self._reread_business(run,dict(source_located_issues=answer['issues'])):
+                    continue
             # Reuse validated field/source locations, not a generic note sweep.
             # Feedback remains a request to reread, never a replacement answer.
             if answer['verdict']=='READING_ERROR' and run.automatic_rechecks<1:
@@ -529,7 +631,7 @@ class Engine:
                                       if isinstance(sources[sid],dict) else sources[sid] for sid in issue['source_ids']]
             run.user_question=dict(kind=answer['verdict'],items=questions,
                 message='系统对下面的说明仍有理解分歧，请说明原意；不需要修改数据或为了通过而增加假设。' if answer['verdict']=='READING_ERROR' else '原材料还不能确定以下内容。')
-            self.event(run,'REVIEW_REQUIRED','需要补充以下信息后才能继续')
+            self.event(run,'REVIEW_REQUIRED','请补充以下信息')
             return
         raise ValueError('AUTOMATIC_REVIEW_STEP_LIMIT')
 
@@ -551,36 +653,52 @@ class Engine:
             run.result=None
             run.query_review=result['query_review']
             run.entry=project.prepare_reader(run.intake,run.query_id,query_review=run.query_review)
-            self.event(run,'READING_FACTS','LLM 正在读取设计、总体信息和科学条件')
+            self.event(run,'READING_FACTS','正在读取研究安排、数据来源和假设')
             raw=self._read_facts(run,run.entry)
+            conflict=local_target_conflict(run.entry,raw) if run.automatic_review else None
+            if conflict:
+                if not self._reread_business(run,conflict):
+                    run.result=dict(state='READING_RECHECK_REQUIRED',reason_code='LOCAL_TARGET_CONFLICT_AFTER_REREAD',
+                                    independent_replay=False,mathematical_claim=None)
+                    self.save(run,'target_reread_unresolved',conflict)
+                    self.event(run,'STOPPED','重新读取后，两阶段对比较目标仍有分歧，尚未进入识别。')
+                return
             run.submission=dict(query_review=run.query_review,candidate=raw,request_sha256=run.entry['request_sha256'])
             self._plan(run)
         elif kind in ('source','notes','information','changes'):
             key={'source':'source_review','notes':'note_review','information':'information_evidence_review','changes':'change_review'}[kind]
-            run.submission[key]=records[kind];self._plan(run)
+            if kind=='notes' and set(records)<= {'first','second'}:
+                run.submission[key]={side:records.get(side) for side in ('first','second')}
+            else:run.submission[key]=records[kind]
+            self._plan(run)
         elif kind=='science':
             confirmed_summary=summarize(run)
             run.reviews['plan_review']=records['plan']
             run.reviews['native_reviews']={row['method']:{name:records[row['method']+'.'+name]
                 for name in ('reading_review','science_review')} for row in run.plan['methods']
                 if 'reading_worksheet' in row and 'science_worksheet' in row}
-            self.event(run,'IDENTIFYING','应用已有定理并独立重放证书')
+            self.event(run,'IDENTIFYING','正在计算并验证识别结果')
             execution_reviews={**run.reviews,'native_reviews':dispatch.native_reviews_from_json(run.plan,run.reviews['native_reviews'])}
             run.result=project.execute(run.intake,run.query_id,**run.submission,**execution_reviews,research_protocol_selected=True)
             # Presentation metadata only; native claims and certificates stay intact.
             if run.result.get('independent_replay') is True and confirmed_summary.get('contract')==capabilities.CONTRACT:
                 run.result['web_review_summary']=confirmed_summary
             self.save(run,'identification',run.result);run.review_kind=None;run.review_sheets={};run.review_templates={}
-            self.event(run,'RESULT','本问题的识别执行已结束。')
-        else:
-            raise ValueError('UNKNOWN_IDENTIFICATION_REVIEW_STAGE')
+            self.event(run,'RESULT','识别计算已结束，请查看结果。')
+        else:raise ValueError('IDENTIFICATION_REVIEW_ONLY')
 
     def _plan(self,run):
         run.result=None
         run.plan=project.inspect_methods(run.intake,run.query_id,**run.submission);self.save(run,'plan',run.plan)
-        for key,kind in [('reading_change_worksheet','changes'),('source_review_worksheet','source'),('note_review_worksheet','notes'),('information_evidence_worksheet','information')]:
+        for key,kind in [('reading_change_worksheet','changes'),('source_review_worksheet','source')]:
             if key in run.plan:
                 self._set_review(run,kind,{kind:run.plan[key]});return
+        from .note_review import pending_sheets
+        notes=pending_sheets(run.plan)
+        if notes:
+            self._set_review(run,'notes',notes);return
+        if 'information_evidence_worksheet' in run.plan:
+            self._set_review(run,'information',{'information':run.plan['information_evidence_worksheet']});return
         if 'plan_worksheet' in run.plan:
             sheets={'plan':run.plan['plan_worksheet']}
             for row in run.plan.get('methods',[]):
@@ -588,4 +706,85 @@ class Engine:
                     if field in row:sheets[row['method']+'.'+name]=row[field]
             self._set_review(run,'science',sheets);return
         run.result=run.plan;run.review_kind=None;run.review_sheets={};run.review_templates={}
-        self.event(run,'RESULT','材料缺项或当前方法不适用；按实际停止原因报告。')
+        self.event(run,'RESULT','识别未完成，原因见下方。')
+
+    def _check_material_counts(self,run):
+        from . import material_counts
+        ctx=material_counts.context(run)
+        if ctx is None:return False
+        previous=run.artifacts.get('material_counts_validated')
+        if previous and previous['binding_sha256']==ctx['binding_sha256']:
+            checked=previous
+        else:
+            stopped=run.artifacts.get('material_counts_stop')
+            if stopped and stopped['binding_sha256']==ctx['binding_sha256']:
+                run.result=deepcopy(stopped['result'])
+                self.event(run,'STOPPED','数量读取仍需复核；原业务材料和文件均未修改。')
+                return True
+            self.event(run,'REVIEWING_READING','正在核对业务文字与上传文件的记录范围')
+            answer=self.call(run,material_counts.request(ctx),'material_counts')
+            try:
+                checked=material_counts.check(ctx,answer)
+            except material_counts.CountReadingError as initial:
+                self.save(run,'material_counts_initial_error',dict(binding_sha256=ctx['binding_sha256'],diagnostics=initial.diagnostics))
+                # One explicit reread per unchanged input. Preserve the original
+                # candidate; never edit a quote/count or bypass a failed check.
+                receipt=run.artifacts.get('material_counts_recovery')
+                if not receipt or receipt['binding_sha256']!=ctx['binding_sha256']:
+                    receipt=dict(binding_sha256=ctx['binding_sha256'],attempts=1)
+                    self.save(run,'material_counts_recovery',receipt)
+                    self.event(run,'REVIEWING_READING','模型的数量引用或格式未通过检查，后台按原材料重读一次；无需修改业务人数')
+                    answer=self.call(run,material_counts.recheck_request(ctx,answer,initial.diagnostics),'material_counts_recheck')
+                errors=material_counts.diagnose(ctx,answer)
+                if errors:
+                    run.result=dict(state='READING_RECHECK_REQUIRED',reason_code='MATERIAL_COUNT_READING_INVALID',
+                        scope='UPLOADED_FINITE_DATA',identification_status='NOT_EVALUATED',
+                        backend_called=False,independent_replay=False,mathematical_claim=None,
+                        diagnostics=errors,automatic_rereads=1,
+                        processing_explanation='；'.join(d['message'] for d in errors[:3]))
+                    self.save(run,'material_counts_stop',dict(binding_sha256=ctx['binding_sha256'],result=run.result))
+                    self.event(run,'STOPPED','模型重读后仍未准确引用或表达数量，尚未进入识别；不需要为此修改真实人数。')
+                    return True
+                checked=material_counts.check(ctx,answer)
+            self.save(run,'material_counts_validated',checked)
+        if not checked['conflicts']:return False
+        run.result=dict(state='NEEDS_INPUT',reason_code='UPLOADED_RECORD_COUNTS_CONFLICT',
+            scope='UPLOADED_FINITE_DATA',identification_status='NOT_EVALUATED',
+            backend_called=False,independent_replay=False,mathematical_claim=None,
+            message='上传资料的记录范围需要说明；尚未判断因果目标能否识别。')
+        run.user_question=dict(kind='NEEDS_CLARIFICATION',items=checked['conflicts'],
+            message='文字与文件的记录范围不一致。请先说明资料对应关系；这不表示因果目标不可识别。')
+        self.event(run,'REVIEW_REQUIRED','需要说明上传资料的记录范围，再继续本次分析')
+        return True
+
+    def _review_intake_stop(self,run,inspected):
+        from . import intake_stop
+        sheet=intake_stop.prepare(run,inspected)
+        if sheet is None:return False
+        self.save(run,'intake_stop_worksheet',sheet)
+        self.event(run,'REVIEWING_READING','正在核对原文是否包含所需信息')
+        answer=self.call(run,intake_stop.request(sheet),'intake_stop_audit')
+        revised,checked,questions=intake_stop.apply(run,sheet,answer)
+        run.intake=revised;self.save(run,'intake',run.intake)
+        self.save(run,'intake_stop_validated',checked)
+        if checked['state']=='BUSINESS_CLARIFICATION_REQUIRED':
+            run.result=dict(checked,state='NEEDS_INPUT',reason_code='SOURCE_CONFIRMED_TARGET_GAP',
+                backend_called=False,independent_replay=False)
+            run.user_question=dict(kind='NEEDS_CLARIFICATION',items=questions,
+                message='还需要明确下面的业务内容。已提供的安排和研究条件会保留。')
+            self.event(run,'REVIEW_REQUIRED','请补充以下信息')
+        elif not self._reread_business(run,dict(source_located_issues=checked['reading_stop_receipt']['queries'])):
+            run.result=checked
+            self.event(run,'STOPPED','读取复核仍有分歧，尚未进入识别；不必为此增加研究条件。')
+        return True
+
+    def _reread_business(self,run,feedback):
+        if 'target_reread_prior' in run.artifacts:
+            return False
+        self.save(run,'target_reread_prior',dict(feedback=feedback,artifacts=deepcopy(run.artifacts)))
+        run.query_id=run.query_review=run.entry=run.submission=run.plan=run.result=None
+        run.review_kind=None
+        run.review_sheets={};run.review_templates={};run.reviews={}
+        self.event(run,'READING','后台定位到业务解释有误，按原材料重新读取并重新审核。')
+        self._read_case(run,target_feedback=feedback)
+        return True

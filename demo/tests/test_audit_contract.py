@@ -19,6 +19,23 @@ def focused_answer(field,source,*,matches=False):
         comparison='原文的比较方向与当前候选不一致' if not matches else '原文两端与当前候选相符',
         matches_source=matches,question=None)])
 
+
+def test_focused_error_keeps_ownership_diagnostic_but_cannot_silently_release_it():
+    path='source:/additional_restrictions/0'
+    first=dict(verdict='READING_ERROR',scientific_approval=False,issues=[dict(
+        issue(),field=path,restriction_role='ALREADY_REPRESENTED')],confirmed=[])
+    second=dict(verdict='READING_ERROR',scientific_approval=False,issues=[dict(issue(),field=path)],confirmed=[])
+    combined=audit.reconcile(first,second,{path:{}})
+    assert combined['verdict']=='READING_ERROR'
+    assert combined['issues'][0]['prior_restriction_role']=='ALREADY_REPRESENTED'
+    assert 'prior_restriction_role' not in second['issues'][0]
+    # A genuine clarification stays a clarification, never a duplicate edit.
+    uncertain=dict(second,verdict='NEEDS_CLARIFICATION',issues=[dict(
+        issue('NEEDS_CLARIFICATION','这个条件是否适用于全部对象？'),field=path)])
+    result=audit.reconcile(first,uncertain,{path:{}})
+    assert result['verdict']=='NEEDS_CLARIFICATION'
+    assert 'prior_restriction_role' not in result['issues'][0]
+
 def test_current_contract_derives_status_without_asking_user_to_repair_model():
     assert audit.check(answer(),{}, {},require_current=True)['verdict']=='PASS'
     error=audit.check(answer(issue()),{'f':{}},{'s':{}},require_current=True)
@@ -267,6 +284,8 @@ def test_unaccepted_coordinate_glossary_is_not_enabled(tmp_path,monkeypatch):
     assert run.intake==original  # Review context never rewrites the reading.
 
 def test_one_audit_format_retry_preserves_input_and_is_not_a_semantic_override(tmp_path,monkeypatch):
+    # This unit isolates audit decisions; bounded target rereading is checked separately.
+    monkeypatch.setattr("demo.backend.engine.Engine._reread_business", lambda *args: False)
     engine,run,_=automatic_fixture(tmp_path,monkeypatch)
     original=deepcopy(run.intake);calls=[]
     def reply(run,request,stage):
@@ -283,6 +302,8 @@ def test_one_audit_format_retry_preserves_input_and_is_not_a_semantic_override(t
     assert run.artifacts['reading_audit_1_validation']['valid'] is False
 
 def test_valid_negative_gets_only_one_focused_check_not_a_loop_until_pass(tmp_path,monkeypatch):
+    # This unit isolates audit decisions; bounded target rereading is checked separately.
+    monkeypatch.setattr("demo.backend.engine.Engine._reread_business", lambda *args: False)
     engine,run,_=automatic_fixture(tmp_path,monkeypatch);calls=[]
     def reply(run,request,stage):
         calls.append(stage);body=json.loads(request['user_prompt'])

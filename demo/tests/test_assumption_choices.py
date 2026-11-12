@@ -112,6 +112,8 @@ def test_change_auditor_sees_unchanged_stance_in_both_candidates(tmp_path,monkey
 
 
 def test_model_reading_error_is_not_a_question_for_the_user(tmp_path,monkeypatch):
+    # This unit isolates audit decisions; bounded target rereading is checked separately.
+    monkeypatch.setattr("demo.backend.engine.Engine._reread_business", lambda *args: False)
     engine,run=reading_fixture(tmp_path,monkeypatch);run.automatic_review=True
     def reply(run,request,stage):
         payload=json.loads(request['user_prompt'])
