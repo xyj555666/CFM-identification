@@ -1,7 +1,7 @@
-# Causal-IDFM — A4 VerifiedSupportAdapter + Randomized-Network Shadow Integration 
+# Causal-IDFM — A4 VerifiedSupportAdapter + Randomized-Network Shadow Integration
 
-**日期**：2026-10-15  
-**基础版本**：Identification v1.0 (Taxonomy + Batch + Estimation Handoff)  
+**日期**：2026-10-15
+**基础版本**：Identification v1.0 (Taxonomy + Batch + Estimation Handoff)
 **状态**：可选 shadow 集成；**不是**生产强制门禁，**不是**新 theorem，**不影响**现有 Estimation/Policy。
 
 ## 1. 本次实际新增

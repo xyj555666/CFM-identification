@@ -1,0 +1,60 @@
+{
+  "schema_version": "literature-support-route-1",
+  "route_ids": [
+    "BOUNDED_POLICY_MEAN_D2_E4",
+    "BOUNDED_POLICY_CONTRAST_D2_E4"
+  ],
+  "updated_on": "2026-11-13",
+  "development_scope": "Typed and common business/web entry; synthetic independently reviewed conditions. Legacy session adapter remains unchanged.",
+  "theorem": {
+    "id": "FINITE_EXACT_COUNT_MEAN_BOX",
+    "attribution": "Project direct finite-box derivation, not a verbatim paper theorem or new theoretical claim.",
+    "derivation_path": "../../docs/BOUNDED_COUNT_MATH_ZH.md",
+    "path_base": "this route JSON directory",
+    "shared_model_documents": [
+      "../../docs/BOUNDED_POLICY_MATH_ZH.md",
+      "../../docs/BOUNDED_CONTRAST_MATH_ZH.txt"
+    ]
+  },
+  "references": [
+    {
+      "source_id": "aronow_samii2017_interference",
+      "url": "https://arxiv.org/abs/1305.6156",
+      "read_scope": "Abstract and journal metadata rechecked 2026-11-13",
+      "supports": "Separation of assignment law, exposure definition and estimand",
+      "does_not_supply": "This project finite mean-box sharpness proof"
+    },
+    {
+      "source_id": "manski2013_social_interactions",
+      "url": "https://www.treatment-effects.com/Manski-2013.pdf",
+      "read_scope": "Sections 5.1-5.2, Proposition SI, equation 5.3 rechecked 2026-11-13",
+      "supports": "Supported versus unsupported effective treatment information under explicit assumptions",
+      "does_not_supply": "Automatic equivalence of CTR/distribution restrictions to project mean sufficiency"
+    }
+  ],
+  "admission_scope": {
+    "design": "D2 uniform fixed quota",
+    "exposure": "E4 exact treated neighbor count",
+    "graph": "Fixed pretreatment simple undirected",
+    "outcomes": [
+      "binary",
+      "continuous"
+    ],
+    "max_nodes": 12,
+    "information": "One exact listed conditional population mean source with all-node all-arrangement bounds",
+    "extra_coupling_constraints": false,
+    "automatic_business_entry": true,
+    "production_admission": false,
+    "estimation_handoff_allowed": false
+  },
+  "validation_entry": "tests_gateway/test_bounded_count.py; tests_gateway/test_bounded_count_dispatch.py",
+  "executable_example": "examples/bounded_count_example.py",
+  "runtime_coverage_authority": "cfm_id.capability_registry.inventory",
+  "literature_scope": {
+    "source_ids": [
+      "aronow_samii2017_interference",
+      "manski2013_social_interactions"
+    ]
+  },
+  "live_validation_note": "2026-11-13: frozen D2/E4 synthetic business, four variants. Terra: three independently replayed positives and one correct missing-condition stop; LongCat retains disagreement/timeout failures. This small set is not a general accuracy benchmark."
+}

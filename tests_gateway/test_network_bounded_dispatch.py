@@ -117,7 +117,7 @@ def test_missing_bounded_contract_stays_blocked(monkeypatch,missing):
     assert r['mathematical_claim'] is None and not r['answers']
 
 
-@pytest.mark.parametrize('extra',['full_law','coupling','incomplete_information','design','large','restriction'])
+@pytest.mark.parametrize('extra',['full_law','coupling','incomplete_information','large','restriction'])
 def test_stronger_or_other_models_not_downgraded(extra):
     s,e,o,p=setup(n=13 if extra=='large' else 7,extra=extra=='restriction');c=o['candidate']
     if extra=='full_law':
@@ -125,7 +125,6 @@ def test_stronger_or_other_models_not_downgraded(extra):
         c['information'].append(v)
     elif extra=='coupling':c['bounded_model']['no_additional_coupling_constraints']['value']=False
     elif extra=='incomplete_information':c['bounded_model']['listed_means_are_complete_information']['value']=False
-    elif extra=='design':c['assignment'].update(kind='INDEPENDENT_BERNOULLI',fixed_count=None,probabilities={n:'1/2' for n in c['study']['nodes']})
     r=execute(s,o);assert r['state']=='ADAPTER_NOT_CONNECTED' and not r['backend_called']
     assert r['reading_candidate']==c
 

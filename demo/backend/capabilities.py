@@ -17,6 +17,10 @@ METHODS = {
  'R1A_COMPOSITION': '网络直接、同伴与局部总效应',
  'R1B_FULL_ASSIGNMENT': '完整政策均值',
  'R2_MEAN_SIGNATURE': '均值充分性下的政策均值',
+ 'BOUNDED_POLICY_MEAN_D2_E4': '同伴人数模型中的政策均值界限',
+ 'BOUNDED_POLICY_MEAN_FINITE': '有限网络模型中的政策均值界限',
+ 'BOUNDED_POLICY_CONTRAST_FINITE': '有限网络模型中的两政策联合界限',
+ 'BOUNDED_POLICY_CONTRAST_D2_E4': '同伴人数模型中的两政策联合界限',
  'BOUNDED_POLICY_MEAN_D2_E1': '有限模型中的政策均值界限',
  'R1B_ENDPOINT_DIFFERENCE': '完整政策差值',
  'R2_ENDPOINT_DIFFERENCE': '均值充分性下的政策差值',
@@ -45,7 +49,7 @@ SCIENCE = {
  'mean_sufficiency_all_assignments_and_weighted_nodes':'评价对象在所有完整安排下的平均结果，只依赖本人处理和所述同伴状态',
  'conditional_mean_sufficiency_all_assignments_and_weighted_nodes':'固定背景下，评价对象在所有完整安排下的条件平均结果，只依赖本人处理和所述同伴状态',
  'mean_sufficiency_all_assignments_and_all_model_nodes':'全部模型对象、所有完整安排上的均值暴露充分性',
- 'exact_a4_values_and_complete_information_scope':'表中数值是精确总体均值，并且已列尽本模型可用的总体信息',
+ 'exact_a4_values_and_complete_information_scope':'所列信息是总体条件均值，数值或符号形式与材料一致，并且已列尽本模型可用的总体信息',
  'scientific_bounds_kind_scope_units_and_all_nodes':'采用下列科学界限及其结果定义、期间与适用范围',
  'no_additional_coupling_constraints':'除已列条件和界限外，没有额外的跨对象或跨安排约束',
  'only_declared_mean_orders_and_bounds':'除已列基础条件、界限和均值顺序外，没有其他限制',
@@ -183,7 +187,7 @@ def science_summary(run):
    if context:first.append('期间与背景：'+str(context))
    bounds=facts.get('bounded_model')
    if bounds:
-    bound_kind='结果界限' if bounds['bounds_kind']=='OUTCOME' else '均值界限'
+    bound_kind='结果界限' if bounds['bounds_kind']=='ALMOST_SURE_OUTCOME' else '均值界限'
     add_condition(bound_kind+'：'+'；'.join(f"{x['node']} [{x['lower']}, {x['upper']}]" for x in bounds['bounds']),term='Scientific bounds',label=bound_kind)
     add_condition('界限适用于所有完整二元安排；'+bounds['outcome_definition']+'，单位 '+bounds['outcome_unit']+'，期间 '+bounds['outcome_period'],term='Scope',label='界限的对象、期间与安排范围',category='information')
    orders=plan.get('reading_candidate',{}).get('mean_order_model')

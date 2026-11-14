@@ -201,6 +201,16 @@ def test_query_worksheet_does_not_overwrite_current_skill_semantics(tmp_path,mon
         assert definition['meaning']==skill.REVIEW_RULES[name].meaning
         assert definition['excludes']==skill.REVIEW_RULES[name].excludes
 
+
+def test_assignment_auditor_receives_the_complete_reader_enum(tmp_path,monkeypatch):
+    from cfm_id_llm.schemas import AssignmentFamily
+    engine,run,_=automatic_fixture(tmp_path,monkeypatch);before=deepcopy(run.intake)
+    _,fields,_=audit.request(run)
+    field=fields['query:common.assignment_family']
+    assert field['allowed_values']==[item.value for item in AssignmentFamily]
+    assert 'STRATIFIED_FIXED_QUOTAS' in field['allowed_values']
+    assert run.intake==before and not run.reviews and run.result is None
+
 def test_published_schema_and_checker_agree_on_question_roles(tmp_path,monkeypatch):
     engine,run,_=automatic_fixture(tmp_path,monkeypatch)
     request,fields,sources=audit.request(run);schema=json.loads(request['user_prompt'])['output_schema']
@@ -275,6 +285,43 @@ def test_fact_schema_retry_keeps_both_answers_and_still_requires_review(tmp_path
     monkeypatch.setattr(engine,'call',lambda *a:deepcopy(bad))
     with pytest.raises(ValueError,match='FACT_READING_FORMAT_INVALID_AFTER_RETRY'):
         engine._read_facts(run,run.entry)
+
+def test_balance_axes_get_one_located_retry_without_silent_repair(tmp_path,monkeypatch):
+    from cfm_id_llm.network_design_reading import component_diagnostics, ComponentStructureError
+    from cfm_id_llm.fact_wire_models import model_for
+    from cfm_id_llm.wire_type_diagnostics import diagnose
+    engine,run,_=automatic_fixture(tmp_path,monkeypatch)
+    engine._review(run,fixture_review(run))
+    good=deepcopy(run.submission['candidate']);nodes=good['study']['nodes']
+    good['assignment']=dict(kind='RERANDOMIZED_BALANCED',fixed_count=1,probabilities=None,
+        unit_weights={n:'1' for n in nodes},balance_covariates={'scale':{n:str(i) for i,n in enumerate(nodes)}},
+        balance_tolerance='1',source_ids=good['assignment']['source_ids'])
+    bad=deepcopy(good);bad['assignment']['balance_covariates']={n:{'scale':str(i)} for i,n in enumerate(nodes)}
+    model=model_for(run.entry)
+    assert component_diagnostics(model.model_validate(good))==[]
+    rows=diagnose(run.entry,bad)
+    assert rows[0]['field_path']=='/assignment/balance_covariates'
+    assert rows[0]['error_code']=='BALANCE_COVARIATES_COMPLETE_NODE_SCOPE_REQUIRED'
+    unknown=deepcopy(good);unknown['assignment']['balance_covariates']=None
+    assert component_diagnostics(model.model_validate(unknown))==[]  # missing stays missing
+    before=deepcopy(run.entry);calls=[]
+    def reply(r,e,stage):
+        calls.append(deepcopy(e));raw=bad if len(calls)==1 else good
+        engine.save(r,'facts_candidate',raw);return deepcopy(raw)
+    monkeypatch.setattr(engine,'call',reply)
+    assert engine._read_facts(run,run.entry)==good
+    assert len(calls)==2 and run.artifacts['facts_candidate_before_format_retry']==bad
+    assert run.artifacts['facts_format_validation']['errors']==rows
+    assert run.entry==before and run.result is None and not run.reviews
+    assert run.artifacts['facts_format_retry_validation']['scientific_approval'] is False
+    # A second invalid answer remains blocked, never transposed by the program.
+    run.automatic_fact_format_repairs=0;calls.clear()
+    def always_bad(r,e,stage):
+        calls.append(e);engine.save(r,'facts_candidate',bad);return deepcopy(bad)
+    monkeypatch.setattr(engine,'call',always_bad)
+    with pytest.raises(ComponentStructureError):engine._read_facts(run,run.entry)
+    assert len(calls)==2 and run.result is None
+
 
 def test_unaccepted_coordinate_glossary_is_not_enabled(tmp_path,monkeypatch):
     engine,run,_=automatic_fixture(tmp_path,monkeypatch)

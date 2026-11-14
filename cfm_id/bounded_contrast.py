@@ -13,6 +13,7 @@ from .assignment_review import validate_assignment_review
 from .intent_submission import _context_snapshot, _validate_policy
 from .bounded_policy_contract import StrictRecord, Hash, Text, BoundedPolicyUnavailable, fail
 from .bounded_contrast_contract import VERSION, SIDES, validate_pair, target_coordinates
+from .bounded_backends import contrast_backend
 from .bounded_contrast_solver import solve, analyze
 from .bounded_contrast_verify import replay
 
@@ -61,18 +62,19 @@ def worksheet(bundle, raw, *, query_id, packet, context, information):
     if type(packet) is not dict or set(packet) != set(SIDES):
         fail('CHECK_BLOCKED', 'EXACT_TWO_ENDPOINT_PACKETS_REQUIRED')
     inquiries = {s: context[s].core_port.bindings[query_id].inquiry for s in SIDES}
-    validate_pair(inquiries, information)
+    contrast_backend(information).validate(inquiries, information)
     if targets[query_id] != target_coordinates(inquiries):
         fail('CHECK_BLOCKED', 'ACTUAL_COMPARISON_AND_REVIEWED_TARGETS_DIFFER')
-    return dict(version=VERSION, query_id=query_id, bundle_sha256=sha(bundle),
+    return dict(version=contrast_backend(information).version, query_id=query_id, bundle_sha256=sha(bundle),
         reading_sha256=sha(raw), ordered_target_sha256=sha(targets[query_id]),
         endpoint_bindings_sha256=sha({s:dict(packet=packet[s],context=_context_snapshot(context[s])) for s in SIDES}),
         information_sha256=sha(information))
 
 
 def prepare(bundle, raw, *, query_id, packet=None, context=None, information=None):
+    backend = contrast_backend(information)
     out = comparison.preview(bundle, raw)
-    out.update(entry=ROUTE, bounded_version=VERSION, bounded_backend_called=False,
+    out.update(entry=backend.route, bounded_version=backend.version, bounded_backend_called=False,
         bounded_certificate_replayed=False, scientific_approval=False,
         production_admission=False, estimation_handoff_allowed=False)
     if set(bundle['question_slots']) != {query_id}:
@@ -93,6 +95,7 @@ def prepare(bundle, raw, *, query_id, packet=None, context=None, information=Non
 
 def submit(bundle, raw, *, query_id, packet=None, context=None, information=None,
            assignment_review=None, joint_review=None, synthetic_protocol_selected=False):
+    backend = contrast_backend(information)
     out = prepare(bundle, raw, query_id=query_id, packet=packet, context=context, information=information)
     if out['state'] != 'REVIEW_REQUIRED':
         return out
@@ -100,9 +103,9 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
             or joint_review is None or assignment_review is None):
         return out
     try:
-        if type(joint_review) is not ReviewedBoundedContrast:
+        if type(joint_review) is not backend.review_type:
             fail('CHECK_BLOCKED', 'SEPARATE_TYPED_CONTRAST_REVIEW_REQUIRED')
-        reviewed = ReviewedBoundedContrast.model_validate(joint_review.model_dump())
+        reviewed = backend.review_type.model_validate(joint_review.model_dump())
         if any(getattr(reviewed, k) != v for k, v in out['worksheet'].items()):
             fail('CHECK_BLOCKED', 'CONTRAST_REVIEW_STALE')
         if type(assignment_review) is not dict or set(assignment_review) != set(SIDES):
@@ -115,7 +118,7 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
             _validate_policy(bundle, resolved['reading'], packet[side], context[side],
                 comparison._endpoint_targets(targets, side))
         inquiries = {s: context[s].core_port.bindings[query_id].inquiry for s in SIDES}
-        analyze(inquiries, information)  # Full compatibility/completeness before any result production.
+        backend.analyze(inquiries, information)  # Full compatibility/completeness before any result production.
         endpoint_assessment = {}
         for side in SIDES:
             c = context[side]
@@ -132,16 +135,16 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
             endpoint_assessment[side] = row
         out.update(point_assessment=endpoint_assessment, assignment_fact_review_receipts=fact_receipts)
         out['bounded_backend_called'] = True
-        certificate = solve(inquiries, information)
-        if not replay(certificate, inquiries=inquiries, information=information):
+        certificate = backend.solve(inquiries, information)
+        if not backend.replay(certificate, inquiries=inquiries, information=information):
             fail('CHECK_BLOCKED', 'INDEPENDENT_CONTRAST_REPLAY_FAILED')
         out.update(state=certificate['status'], reason_code=None, bounded_result=certificate,
             bounded_certificate_replayed=True, joint_review_sha256=sha(reviewed))
         for view in out['query_views']:
-            view.update(state=certificate['status'], reason_code=None, route=ROUTE,
+            view.update(state=certificate['status'], reason_code=None, route=backend.route,
                 identified_interval=[certificate['lower'],certificate['upper']],
                 sharp=True, informative=certificate['informative'], bounded_certificate_replayed=True)
-        out['identification'] = dict(results=[dict(query_id=query_id, status=certificate['status'], route=ROUTE,
+        out['identification'] = dict(results=[dict(query_id=query_id, status=certificate['status'], route=backend.route,
             identified_interval=[certificate['lower'],certificate['upper']],
             bounded_certificate_sha256=certificate['certificate_sha256'], bounded_certificate_replayed=True)])
     except BoundedPolicyUnavailable as exc:

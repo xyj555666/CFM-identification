@@ -8,9 +8,9 @@ from .network_model_scope_contract import make_local_request, INFORMATION_SCOPE
 
 CONTRACT = 'network-source-selections-information-4'
 
-INFORMATION_COMPLETENESS = '''listed_means_are_complete_information记录原文对“提供的精确数值总体均值表已经穷尽可用总体信息”的声明，而不是问所有潜在均值是否已知，也不是识别判断。
-true：原文提供了至少一项精确总体均值，并明确声明可用总体信息恰好就是这些精确均值；只列部分格子也可以为true。另有有限样本时仍原样保留样本，样本本身不额外成为总体真值。
-false：原文明确没有提供精确总体均值表（包括明确只有有限样本、估计值或置信区间）；或者明确还有未被这份表表达的总体区间、聚合方程、符号分布等总体信息。保留这些原文信息，不能改成点值或删掉。
+INFORMATION_COMPLETENESS = '''listed_means_are_complete_information记录原文对“逐格列明的总体均值已经穷尽可用总体信息”的声明，而不是问所有潜在均值是否已知、是否已代入数值，也不是识别判断。
+true：原文提供至少一个总体均值坐标，并明确可用总体信息恰好就是这些均值。可提供精确数值，也可明确以符号提供这些总体均值；只列部分格子也可以为true。availability分别记录EXACT_POPULATION_VALUE或SYMBOLIC_POPULATION_OPERATOR，符号格子的value保持null。另有有限样本时仍原样保留样本，样本不成为总体真值。
+false：原文明确没有提供总体均值信息（包括明确只有有限样本、估计值或置信区间）；或者明确还有未被这些格子表达的总体区间、聚合方程、符号联合分布等总体信息。保留这些信息，不能改成点值或删掉。符号总体均值不等同于更强的符号联合分布。
 null：原文没有明确说明是否提供该表、是否穷尽总体信息，或声明尚待确认；沉默不能推成false或true。原文自身矛盾时也保留null，并在unresolved引用双方说明冲突。
 明确不存在与尚不清楚不同；没有其他总体信息不自动把一个空表变成true。科学界限属于模型条件，不算另外观察到的总体信息。此字段的source_ids须共同支持表的性质及完整性声明，不能借information或study的引用补足。'''
 

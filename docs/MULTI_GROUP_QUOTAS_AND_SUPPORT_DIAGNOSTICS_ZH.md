@@ -48,7 +48,7 @@ $$
 
 Target/完整分配律指纹均保持与数据/网络/曝光签名绑定。改变分组、名额或基准网络意味着另一个已声明的实验，不是对既有结果做事后可行性修补。
 
-## 二、A6 Signature Support Diagnostics 
+## 二、A6 Signature Support Diagnostics
 
 `diagnose_policy_signature_support_v25(study, target, signature)` 是**非定理性**的支持诊断，覆盖 D1–D5 × E1–E5：
 

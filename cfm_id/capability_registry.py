@@ -45,6 +45,8 @@ def business_bindings():
     from . import network_extended_dispatch as extended
     from cfm_id_llm import network_extended_reading as extended_reading
     from .workflows import policy_difference
+    from . import bounded_count_solver, bounded_count_verify
+    from . import bounded_finite_solver, bounded_finite_verify
     from . import bounded_policy_solver, bounded_policy_verify
     from . import bounded_contrast_solver, bounded_contrast_verify, fixed_comparison
     from . import network_mean_order_dispatch as order, mean_order_solver, mean_order_verify
@@ -58,7 +60,11 @@ def business_bindings():
             'One complete fixed policy, declared evaluation population and equal mean; native scope checks remain required.',
             (MethodBinding(mean.R1B, (mean.R1B,), (r1b.identify_verified_fixed_policy,), (r1b.replay_verified_fixed_policy,)),
              MethodBinding(mean.R2, (mean.R2,), (r2.identify_verified_signature_policy,), (r2.replay_verified_signature_policy,)),
-             MethodBinding(bounded.METHOD, (bounded.METHOD,), (bounded_policy_solver.solve,), (bounded_policy_verify.replay,))),
+             MethodBinding(bounded.METHOD, (bounded.METHOD,), (bounded_policy_solver.solve,), (bounded_policy_verify.replay,)),
+             MethodBinding(bounded.COUNT_METHOD,(bounded.COUNT_METHOD,),
+                (bounded_count_solver.solve_policy,),(bounded_count_verify.replay_policy,)),
+             MethodBinding(bounded.FINITE_METHOD,(bounded.FINITE_METHOD,),
+                (bounded_finite_solver.solve_policy,),(bounded_finite_verify.replay_policy,))),
             mean.inspect_methods, mean.native_reviews_from_json, mean._execute_plan, True, True),
         BusinessBinding(contrast.FAMILY, 'UNIT_NETWORK', ('TOTAL_EFFECT',),
             'Only first minus second of two complete fixed policies with one population, outcome and context; not arbitrary total effects.',
@@ -70,6 +76,10 @@ def business_bindings():
                 (network.replay_verified_business_outcome, policy_difference.replay)),
              MethodBinding(contrast.BOUNDED_METHOD, (contrast.BOUNDED_METHOD,),
                 (bounded_contrast_solver.solve,), (bounded_contrast_verify.replay,)),
+             MethodBinding(contrast.COUNT_METHOD,(contrast.COUNT_METHOD,),
+                (bounded_count_solver.solve_contrast,),(bounded_count_verify.replay_contrast,)),
+             MethodBinding(contrast.FINITE_METHOD,(contrast.FINITE_METHOD,),
+                (bounded_finite_solver.solve_contrast,),(bounded_finite_verify.replay_contrast,)),
              MethodBinding(order.METHOD, (order.METHOD,),
                 (mean_order_solver.solve,), (mean_order_verify.replay,))),
             contrast.inspect_methods, contrast.native_reviews_from_json, contrast._execute_plan, True, True),
@@ -278,6 +288,18 @@ def separate_entries():
         dict(entry_id='BOUNDED_POLICY_CONTRAST_D2_E1',route_ids=['BOUNDED_POLICY_CONTRAST_D2_E1'],
             entry='cfm_id.bounded_contrast',
             reason='Preserve both endpoint contexts, assignment reviews and joint contrast review.'),
+        dict(entry_id='BOUNDED_POLICY_MEAN_D2_E4',route_ids=['BOUNDED_POLICY_MEAN_D2_E4'],
+            entry='cfm_id.bounded_policy',
+            reason='CountMeanInformation and separate ReviewedCountPolicy; common business reader connected, synthetic review only.'),
+        dict(entry_id='BOUNDED_POLICY_CONTRAST_D2_E4',route_ids=['BOUNDED_POLICY_CONTRAST_D2_E4'],
+            entry='cfm_id.bounded_contrast',
+            reason='Common exact-count model and ReviewedCountContrast; common reader connected, both endpoint reviews remain required.'),
+        dict(entry_id='BOUNDED_POLICY_MEAN_FINITE',route_ids=['BOUNDED_POLICY_MEAN_FINITE'],
+            entry='cfm_id.bounded_policy',
+            reason='D1-D8/E1-E5 finite mean boxes: D1-D6 <=12 nodes, D7/D8 <=8; complete reviewed information and no extra coupling. Numeric legacy sessions; symbolic formulas through common business dispatch only. Synthetic only.'),
+        dict(entry_id='BOUNDED_POLICY_CONTRAST_FINITE',route_ids=['BOUNDED_POLICY_CONTRAST_FINITE'],
+            entry='cfm_id.bounded_contrast',
+            reason='Same finite model, ordered policies and shared coordinates; exact joint signed objective, synthetic only.'),
         dict(entry_id='LLM_UNVERIFIED_RESEARCH',route_ids=[],
             entry='evaluation.business_candidate_feedback',
             reason='Restricted existing research lane; unverified prose is never a certified mathematical claim.'),

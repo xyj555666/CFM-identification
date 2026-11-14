@@ -11,10 +11,14 @@ SIDES = ('first', 'second')
 
 
 def validate_pair(inquiries, information):
+    return _validate_pair(inquiries, information, validator=validate_model)
+
+
+def _validate_pair(inquiries, information, *, validator):
     for mapping in (inquiries, information):
         if type(mapping) is not dict or set(mapping) != set(SIDES):
             fail('CHECK_BLOCKED', 'EXACT_TWO_ORDERED_MODELS_REQUIRED')
-    validated = {s: validate_model(inquiries[s], information[s]) for s in SIDES}
+    validated = {s: validator(inquiries[s], information[s]) for s in SIDES}
     a, b = (inquiries[s] for s in SIDES)
     # All scientific structure is shared. Only the target may differ.
     for name in ('study', 'assumptions', 'r2_signature', 'r2_sufficiency', 'r2_sources'):

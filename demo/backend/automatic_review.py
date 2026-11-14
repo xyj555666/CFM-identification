@@ -94,7 +94,13 @@ def request(run):
         instruction='source_ids使用带命名空间的source_catalog编号。字段里的短编号须在对应命名空间内解释。')
     if run.review_kind=='query':
         from cfm_id_llm.target_first_reading import NETWORK_TARGET_DEFINITIONS
+        from cfm_id_llm.schemas import AssignmentFamily
         payload['target_kind_definitions']=NETWORK_TARGET_DEFINITIONS
+        # The enum is owned by the actual reader, not inferred from prose.
+        # Membership is a format fact only; matching the source still requires review.
+        for field in fields.values():
+            if field.get('definition',{}).get('name')=='assignment_family':
+                field['allowed_values']=[item.value for item in AssignmentFamily]
     if run.review_kind=='changes':
         previous=[(int(k.rsplit('_',1)[-1]),v) for k,v in run.artifacts.items()
                   if k.startswith('facts_before_recheck_') and k.rsplit('_',1)[-1].isdigit()]

@@ -10,6 +10,7 @@ from itertools import product
 from examples import intent_routes_fixture as f
 from cfm_id import bounded_policy_intake as intake
 from cfm_id.bounded_policy_contract import ReviewedBoundedPolicy
+from cfm_id.bounded_backends import policy_backend
 from cfm_id.bounded_policy import worksheet
 from cfm_id.question_bound_assignment import question_catalog, resolve_reading, CONTRACT
 from cfm_id.source_locations import build_catalog
@@ -152,7 +153,7 @@ def existing_reviews(bundle,raw,compiled,claims,expected):
     facts=ReviewedQuestionBoundAssignmentFacts(**assignment_worksheet(bundle,raw,packet,context,contract=CONTRACT),
         reviewer='Independent synthetic assignment reviewer',evidence='Original uniform quota and exact public source checked',
         reviewed_original_assignment_and_sources=True,synthetic_fixture=True)
-    bound=ReviewedBoundedPolicy(**worksheet(bundle,raw,query_id='q1',packet=packet,context=context,information=info),
+    bound=policy_backend(info).review_type(**worksheet(bundle,raw,query_id='q1',packet=packet,context=context,information=info),
         reviewer='Independent synthetic bounds reviewer',evidence='Exact means and all-arrangement bounds; no ignored constraints',
         reviewed_complete_a4_information=True,reviewed_scientific_bounds_and_scope=True,
         reviewed_no_additional_coupling_constraints=True,synthetic_fixture=True)

@@ -44,12 +44,26 @@ PARTIAL 扩展框架：共用审核链，每条路线独立承担数学责任
   以上路径均位于 cfm_id/。
 
 新路线应保留这五种职责的分离，但不必照搬每个类或 R2 专用字段。
-先有第二条真实路线，再依据实际重复抽取共用代码；当前不改造数学 Core。
+现已增加 D2/E4 类型化研究入口作为不同暴露的第二个样板（2026-11-13）：
+  bounded_count_contract.py：人数坐标、版本及公共声明校验的受限复用；
+  bounded_count_solver.py / bounded_count_verify.py：精确界及独立枚举验证；
+  bounded_backends.py：按实际类型选择后端，不从 LLM 标签选择；
+  bounded_policy.py / bounded_contrast.py：复用原审核和结果发布链。
+见 BOUNDED_COUNT_MATH_ZH.md 与 examples/bounded_count_example.py。
+2026-11-13 更新：D2/E4 已接共同自然语言和网页；其余原 D1–D6/E1–E5
+有限均值盒组合由 bounded_finite_contract/solver/verify.py 接入同一业务链。
+共同入口为 business_intake/business_dispatch（新应用从 project 进入），旧专门
+会话和 bounded_policy_intake 仍保留原 D2/E1 范围，不能混同为所有旧入口均扩展。
+可运行样板：examples/finite_mean_box_reference.py；
+数学与限制：docs/FINITE_MEAN_BOX_MATH_ZH.md。这些扩展只处理明确的盒模型，
+不把均值顺序、任意联合约束、D7/D8 或加权/分组暴露自动纳入。
 路线清单或接口符合性只能说明“有这个模块”，不能批准假设、替换审核或发布结论。
 
-现有有界入口仅接收已经审核的 R2 POINT，或 R2 实际确认的
+上述历史 bounded_policy 专门提交入口仅接收已经审核的 R2 POINT，或 R2 实际确认的
 ZERO_POLICY_SIGNATURE_SUPPORT。其他 UNSUPPORTED 原因不会自动转成 PARTIAL。
 新路线必须写清自己的入口条件，不能继承一个“失败后就求界”的通用回退。
+共同业务入口则按原文明确给出的完整有限模型直接选择相应路线，并独立审核；
+不是任意 POINT 失败之后再自动退回 PARTIAL。
 
 三、每条路线先写清的数学合同
 

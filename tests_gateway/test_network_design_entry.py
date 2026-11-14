@@ -316,12 +316,12 @@ def test_zero_support_stays_unavailable_without_partial_or_scientific_shortcut()
     assert not r['independent_replay'] and not r['partial_fallback_performed']
 
 
-def test_new_exposure_does_not_expand_bounded_model_domain():
+def test_newly_supported_exposure_still_requires_fresh_scientific_review():
     from examples.network_contrast_dispatch_reference import setup as bounded_setup
     s,e,o=bounded_setup('partial')
     o['candidate']['exposure']['kind']='ANY_TREATED_NEIGHBOR'
     r=dispatch.execute(s,'q1',**o,research_protocol_selected=True)
-    assert r['state']=='ADAPTER_NOT_CONNECTED' and not r['backend_called']
+    assert r['state']=='REVIEW_REQUIRED' and not r['backend_called']
 
 
 def test_recommended_public_entry_all_four_targets_keep_d6_e3_and_replay():

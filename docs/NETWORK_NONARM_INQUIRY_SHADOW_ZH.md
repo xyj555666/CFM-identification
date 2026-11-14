@@ -1,4 +1,4 @@
-# Causal-IDFM Identification — Non-arm Network Inquiry Shadow 
+# Causal-IDFM Identification — Non-arm Network Inquiry Shadow
 
 > **版本定位：** 基于 v1.5 的**最小只读侧路集成**，承接 v1.6 NetworkStudyContext 跨 Family 兼容性审计。发布日期：2026-10-16。没有新增 identification theorem，没有修改旧 `identify()`、Batch、Estimation 或 Policy 行为。
 

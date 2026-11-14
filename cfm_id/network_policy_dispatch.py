@@ -77,7 +77,14 @@ def inspect_methods(entry, raw, *, note_review=None, information_evidence_review
         gaps, unsupported = design_adapter.component_gaps(c)
         if 'CONFLICTING_FIRST_STAGE_EXCLUSION' in unsupported:
             return dict(out,state='READING_RECHECK_REQUIRED',reason_code='CONFLICTING_FIRST_STAGE_EXCLUSION')
-        missing = ['请补充原文中的分配或科学条件字段：'+field for field in gaps]
+        missing = [
+            ('在最终启用名单相同的情况下，先抽中的名额方案本身是否还会影响结果？'
+             '请说明本研究是否采用“名额方案只通过最终名单影响结果”这一条件；'
+             '尚未决定或不采用也请直接说明。')
+            if field == 'first_stage_exclusion'
+            else '请补充原文中的分配或科学条件字段：'+field
+            for field in gaps
+        ]
         if c.additional_restrictions:
             unsupported.append('ADDITIONAL_INFORMATION_OR_RESTRICTIONS_REQUIRE_SEPARATE_ADAPTER')
         if c.study.graph_kind=='OTHER' or c.study.outcome_kind=='OTHER':
@@ -289,11 +296,11 @@ def _execute_plan(plan, *, plan_review=None, native_reviews=None, research_proto
                 if record.authority!=review.authority:
                     raise DispatchError('CHECK_BLOCKED','NETWORK_REVIEW_AUTHORITY_MISMATCH')
                 records[row['method']][key]=record
-        from .network_bounded_dispatch import METHOD as bounded_method, execute_reviewed
-        if any(row['method']==bounded_method for row in plan['methods']):
+        from .network_bounded_dispatch import METHODS as bounded_methods, execute_reviewed
+        if any(row['method'] in bounded_methods for row in plan['methods']):
             if len(plan['methods'])!=1:
                 raise DispatchError('CHECK_BLOCKED','EXACT_BOUNDED_MODEL_PLAN_REQUIRED')
-            return execute_reviewed(plan,plan['methods'][0],records[bounded_method],review,out)
+            return execute_reviewed(plan,plan['methods'][0],records[plan['methods'][0]['method']],review,out)
         from pfn_pipeline import identification_policy_r1b as r1b,identification_policy_r2 as r2
         answers=[]
         for row in plan['methods']:

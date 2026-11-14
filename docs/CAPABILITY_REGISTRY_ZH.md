@@ -24,16 +24,18 @@ R1a/R1b/R2/R3 是识别机制，D1–D6 是分配设计，E1–E5 是暴露定�
 
 | 已审核的目标 | 事实读取协议类别 | 可以提出的方法计划 | 仍需满足的范围 |
 |---|---|---|---|
-| 单个固定政策的均值 | `NETWORK_FIXED_POLICY_FACTS` | R1b 完整安排、R2 均值签名、有限 D2/E1 政策均值 | 完整政策、明确评价总体及等权均值；各自 A4、A5、支持条件须继续审核／计算 |
+| 单个固定政策的均值 | `NETWORK_FIXED_POLICY_FACTS` | R1b 完整安排、R2 均值签名、有限 D1–D8/E1–E5 政策均值界（保留旧 E1/count 协议） | 完整政策、明确评价总体及等权均值；各自 A4、A5、支持条件须继续审核／计算 |
 | 观察性固定 W 下单个完整政策的均值 | `NETWORK_OBSERVATIONAL_POLICY_FACTS` | R3_FULL_ASSIGNMENT / R3_MEAN_SIGNATURE | 完整观测总体律、逐对象条件均值覆盖、独立完整向量交换性；最多12节点，仅固定W；签名另有全安排条件均值充分性及范围审核，支持由原生后端检查 |
-| 第一政策均值减第二政策均值 | `NETWORK_POLICY_CONTRAST_FACTS` | 两个同方法 R1b／R2 端点的有符号组合、联合有限 D2/E1 差值及均值顺序模型 | 两个完整政策、共同评价总体／结果／情境及明确差值方向；不是所有 `TOTAL_EFFECT` 都已接通 |
+| 第一政策均值减第二政策均值 | `NETWORK_POLICY_CONTRAST_FACTS` | 两个同方法 R1b／R2 端点的有符号组合、联合有限 D1–D8/E1–E5 差值界、D2/E1 数值均值顺序模型 | 两个完整政策、共同评价总体／结果／情境及明确差值方向；不是所有 `TOTAL_EFFECT` 都已接通 |
 | 原设计条件平均下的直接／同伴效应 | `NETWORK_RANDOMIZED_EFFECT_FACTS` | 既有 R1a 局部均值的组合 | 已连接 D1–D6/E1–E5、固定评价名单及等权平均；明确局部状态、方向与其余安排规则；逐项审核和正支持仍必需 |
 | DAG 干预分布 | `VARIABLE_DAG_FACTS` | 经典后门、调整、单变量经典前门 | 各自有限变量 DAG 合同；不自动组合对象网络与变量 DAG |
 | 原设计下单个对象、单个局部状态的均值 | `NETWORK_RANDOMIZED_ARM_FACTS` | R1A_RANDOMIZED_ARM | 明确节点、本人状态和同伴暴露，按原设计条件平均；D1–D6/E1–E5，合成研究审核 |
 | 有限个完整政策的加权均值 | `NETWORK_FINITE_POLICY_FACTS` | R1B_FINITE_POLICY | 明确各完整政策及正权重，各分量分别检查支持并重放；合成研究审核 |
 | 观察性直接／同伴／局部总效应 | `NETWORK_OBSERVATIONAL_EFFECT_FACTS` | R3_P_STANDARDIZED_EFFECTS、R3_EXPOSURE_ADJUSTED_EFFECTS、R3_NODEWISE_EXPOSURE_ADJUSTED_EFFECTS | 区分观测律条件平均、共同处理前分层和本人与邻居二元特征调整；各自总体信息、交换性、充分性及支持条件独立审核，合成研究范围 |
 
-有限 PARTIAL 仍限于当前完整声明的 D2/E1 模型，需要精确总体均值、界限和信息／约束完整性声明；sharp 相对于审核后的模型。仅因一个 POINT 方法失败，不会自动改成 PARTIAL。方法计划可以包含多个尚未检验支持条件的方法，登记或进入计划均不等于识别成功。
+共同业务入口的有限均值盒 PARTIAL 覆盖 D1–D8/E1–E5，D1–D6最多12节点、D7/D8最多8节点；需要明确的数值或符号总体均值、科学界限、全安排均值充分性及信息／约束完整性声明。符号路径输出参数域内经重放的公式，不填造总体数值；均值顺序仍限 D2/E1 数值合同。sharp 相对于审核后的模型，详见 [有限均值模型](FINITE_MEAN_BOX_MATH_ZH.md)。仅因一个 POINT 方法失败，不会自动改成 PARTIAL。方法计划可以包含多个尚未检验支持条件的方法，登记或进入计划均不等于识别成功。
+
+2026-11-13 新增 D2/E4 类型化研究入口：`BOUNDED_POLICY_MEAN_D2_E4` 与 `BOUNDED_POLICY_CONTRAST_D2_E4`。使用 `CountMeanInformation` 及单独的审核类型，复用原政策/差值提交链；独立生成和重放精确人数证书。登记在 `separate_native_entries`，`common_business_routes` 为空，尚未进入网页或自由文本自动分派。不要向旧 E1 会话传入 E4 信息。数学合同、示例与命令见 [D2/E4 有限均值模型](BOUNDED_COUNT_MATH_ZH.md)。
 
 R1a 的 D1–D6/E1–E5 直接与同伴效应组合已接入，详见[局部效应入口](NETWORK_EFFECT_DISPATCH_ZH.md)与[设计/暴露验收](NETWORK_DESIGN_EXPOSURE_ENTRY_ZH.md)。直接效应支持两个比较方向：正向沿用原生具名效应合同，反向实际调用既有线性目标生产与重放函数。单个局部均值、有限政策混合及 R3 的标准化效应／暴露调整现已由 `network_extended_dispatch` 接入上表三个读取家族；这不是任意网络、政策或调整变量的通用识别器。R3固定W政策均值已连接Full及显式签名配置；Full零支持不自动授予签名充分性，也不自动转PARTIAL。D2/E1均值顺序两政策差值已接本共同入口，并保留原专门入口；[接入范围与验收](NETWORK_MEAN_ORDER_ENTRY_ZH.md)。库外候选研究仍保留专门入口。
 

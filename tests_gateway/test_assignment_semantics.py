@@ -12,6 +12,25 @@ from tests_gateway.test_reading_review_guards import feedback as a0_feedback
 from examples.business_dispatch_reference import approve
 
 
+def test_d7_d8_reading_and_review_share_assignment_field_responsibility():
+    from cfm_id_llm.assignment_semantics import (
+        A0_FAMILY_DESCRIPTION, FACT_KIND_DESCRIPTION, FIXED_COUNT_DESCRIPTION, describe)
+    from cfm_id_llm.business_field_contract import COMMON
+    from cfm_id_llm.network_policy_reading import Assignment, NetworkPolicyReading
+    assert next(f for f in COMMON if f.name == 'assignment_family').meaning == A0_FAMILY_DESCRIPTION
+    schema = NetworkPolicyReading.model_json_schema()
+    describe(schema, specialist=True)
+    fields = schema['$defs']['Assignment']['properties']
+    direct = Assignment.model_json_schema()['properties']
+    for name, description in [('kind', FACT_KIND_DESCRIPTION), ('fixed_count', FIXED_COUNT_DESCRIPTION)]:
+        assert fields[name]['description'] == direct[name]['description'] == description
+    # Explanatory alignment must not convert or approve a different mechanism.
+    assert 'RERANDOMIZED_BALANCED' in fields['kind']['enum']
+    assert 'D7' in fields['fixed_count']['description'] and 'D8' in fields['fixed_count']['description']
+    from cfm_id_llm.schemas import AssignmentFamily
+    assert all(item.value in A0_FAMILY_DESCRIPTION for item in AssignmentFamily)
+
+
 def network():
     from examples.network_dispatch_reference import case, candidate
     from cfm_id_llm.evidence_refs import build_catalog

@@ -13,9 +13,13 @@ from examples.dag_business_reference import cases as backdoors
 from examples.dag_adjustment_business_reference import cases as adjustments
 from examples.dag_frontdoor_business_reference import _case as frontdoor
 
-NAMES=('r1a','r1b','r2','partial_mean','point_contrast','r2_contrast','partial_contrast','mean_order','r3','r3_signature','dag_backdoor','dag_adjustment','dag_frontdoor')
+NAMES=('r1a','r1b','r2','partial_mean','point_contrast','r2_contrast','partial_contrast','mean_order','r3','r3_signature','dag_backdoor','dag_adjustment','dag_frontdoor','count_mean','count_contrast','finite_mean','finite_contrast')
 
 def setup(name):
+ if name.startswith(('count_','finite_')):
+  from examples.finite_mean_box_reference import setup as finite_setup
+  s,o,_,_=finite_setup('D2' if name.startswith('count_') else 'D3','E4' if name.startswith('count_') else 'E2',single=name.endswith('mean'))
+  return s,o,dispatch.inspect_methods(s,'q1',**o)
  if name in ('arm','mixture','observed','stratum','nodewise'):
   from examples.network_extended_reference import setup as extended_setup
   return extended_setup(name)
@@ -57,7 +61,7 @@ def test_registered_routes_execute_after_browser_shaped_confirmation(tmp_path,na
  assert all(x['term'] for x in summary['condition_items']),summary['condition_items']
  assert r.review_templates==before and r.result is None
  e._review(r,approve(r))
- assert r.result['state']==('PARTIAL' if name in ('partial_mean','partial_contrast','mean_order') else 'POINT'),r.result
+ assert r.result['state']==('PARTIAL' if name in ('partial_mean','partial_contrast','mean_order','count_mean','count_contrast','finite_mean','finite_contrast') else 'POINT'),r.result
  assert r.result['independent_replay'] is True
  assert r.result['web_review_summary']['plan_sha256']==r.plan['plan_sha256']
 

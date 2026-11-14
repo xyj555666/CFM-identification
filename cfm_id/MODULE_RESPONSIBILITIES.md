@@ -11,6 +11,7 @@
 | `network_policy_dispatch`、`network_contrast_dispatch`、`network_effect_dispatch`、`network_bounded_dispatch`、`network_mean_order_dispatch`、`network_observational_policy_dispatch`、`dag_method_dispatch` | 将来源明确且已审的业务编译成相应原生合同，并核对返回证据 | 保留每个方法的 A4/A5 与适用域；不复制数学求解器 |
 | `reading_*`、`fact_reading_revision`、`intake_reading_revision` | 读取一致性、完整变更审核、显式复查 | 不补答案、不替模型批准来源；Prompt 定义归 `cfm_id_llm` |
 | `bounded_policy_contract/solver/verify`、`bounded_contrast_contract/solver/verify`、`mean_order_contract/solver/verify` | 有限数学模型、算法与独立验证 | 属于数学 Core；改动需要推导与数学验收，不以业务调整为由修改 |
+| `bounded_count_*`、`bounded_finite_*`、`bounded_backends`、`bounded_mean_formula` | D2/E4 兼容及 D1–D8/E1–E5 有限均值盒合同、求界、重放、公式表达与类型分派 | 同一求界目标复用设计和暴露；D1–D6限12节点、D7/D8限8节点。符号入口需显式声明及独立重放；额外联合约束不在盒模型内 |
 | `dag_backdoor_contract/solver/verify`、`dag_adjustment_contract/solver/verify`、`dag_frontdoor_contract/solver/verify` | 图模型、识别与独立验证 | 属于数学 Core；对象合作网络不能当变量 DAG |
 | `bounded_policy`、`bounded_contrast`、`dag_backdoor`、`dag_adjustment`、`dag_frontdoor` 及对应 adapter | 原生合同的公开执行或研究连接 | 查对应合同，不能与同名前缀的 solver 混同 |
 | `workflows/` | 专门运行工作流、准入适配、已有证书的组合核对 | 新增组合放这里；不存评分、金标准或自动合成批准 |

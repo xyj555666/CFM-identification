@@ -54,6 +54,7 @@
 | `network_*_dispatch`、`dag_method_dispatch` | 业务适配器；将审核后的事实交给已有数学合同，不能把这些文件当 solver |
 | `network_design_adapter` | 已审 D1–D6/E1–E5 参数到现有原生构造器的共同转换；Task 1 另接 D7 不等概率固定名额 / D8 重随机化平衡（`task1_design` + `make_arm` 路由）；不推断设计、不计算支持、不自动批准条件 |
 | `bounded_policy_contract/solver/verify`、`bounded_contrast_contract/solver/verify`、`mean_order_contract/solver/verify` | 正式有限数学模型与独立验证，属于 Core |
+| `bounded_count_*`、`bounded_finite_*` | D2/E4 数值协议和 D1–D8/E1–E5 的有限均值盒模型：类型合同、数值/符号求界、独立枚举重放；业务接入复用 `network_bounded_dispatch` / `network_contrast_dispatch`。展示公式统一在 `bounded_mean_formula`，不授予审核。不要把新约束塞进盒模型，详见 FINITE_MEAN_BOX_MATH_ZH.md |
 | `dag_backdoor_contract/solver/verify`、`dag_adjustment_contract/solver/verify`、`dag_frontdoor_contract/solver/verify` | DAG 数学合同与独立验证，属于 Core |
 | `workflows/` | 专门研究流程与既有证书的组合；`legacy_network/` 保持旧运行接口 |
 | `research_session*`、`session_*`、`research_versions` | 显式研究会话、条件版本与审核生命周期 |

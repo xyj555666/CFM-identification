@@ -1,4 +1,4 @@
-"""Reviewed numeric mean model -> existing finite D2/E1 solver and replay.
+"""Reviewed mean model -> finite D1-D8/E1-E5 solver and replay.
 
 This is an explicit model connection, not a fallback after a POINT failure.
 The native mathematics is unchanged; complete A4 and model scope are reviewed.
@@ -10,6 +10,14 @@ from .bounded_policy_contract import (VERSION,MAX_N,BoundedMeanInformation,
 from cfm_id_bridge.scientific_binding import sha as native_sha,canonical_data
 
 METHOD='BOUNDED_POLICY_MEAN_D2_E1'
+COUNT_METHOD='BOUNDED_POLICY_MEAN_D2_E4'
+FINITE_METHOD='BOUNDED_POLICY_MEAN_FINITE'
+METHODS=(METHOD,COUNT_METHOD,FINITE_METHOD)
+DESIGNS=('INDEPENDENT_BERNOULLI','UNIFORM_FIXED_QUOTA','TWO_GROUP_FIXED_QUOTA',
+         'CLUSTER_BERNOULLI','MULTI_GROUP_FIXED_QUOTA','TWO_STAGE_QUOTA_MIXTURE',
+         'UNEQUAL_PROBABILITY_FIXED_QUOTA','RERANDOMIZED_BALANCED')
+EXPOSURES=('STRICT_MAJORITY_TIES_LOW','THREE_LEVEL_TREATED_NEIGHBOR_FRACTION',
+           'PRETREATMENT_CORE_COLLABORATOR_MAJORITY','EXACT_TREATED_NEIGHBOR_COUNT','ANY_TREATED_NEIGHBOR')
 MODEL_DECISIONS=('exact_a4_values_and_complete_information_scope',
     'scientific_bounds_kind_scope_units_and_all_nodes','no_additional_coupling_constraints',
     'mean_sufficiency_all_assignments_and_all_model_nodes')
@@ -36,22 +44,28 @@ def prepare(entry,raw,c,out,*,_mean_order_context=None):
     # that transfer has not been established by this business adapter.
     if c.study.outcome_kind == 'COUNT':
         return stop('ADAPTER_NOT_CONNECTED','COUNT_BOUNDED_MODEL_NOT_CONNECTED')
-    if (c.assignment.kind!='UNIFORM_FIXED_QUOTA' or len(c.study.nodes)>MAX_N
-            or c.exposure.kind not in ('STRICT_MAJORITY_TIES_LOW','UNKNOWN','NONE','OTHER')):
-        return stop('ADAPTER_NOT_CONNECTED','BOUNDED_D2_E1_FINITE_DOMAIN_REQUIRED')
+    if (c.assignment.kind not in DESIGNS or len(c.study.nodes)>MAX_N
+            or c.exposure.kind not in (*EXPOSURES,'UNKNOWN','NONE','OTHER')):
+        return stop('ADAPTER_NOT_CONNECTED','BOUNDED_D1_D8_E1_E5_FINITE_DOMAIN_REQUIRED')
+    if c.assignment.kind in ('UNEQUAL_PROBABILITY_FIXED_QUOTA','RERANDOMIZED_BALANCED') and len(c.study.nodes)>8:
+        return stop('ADAPTER_NOT_CONNECTED','EXTENDED_DESIGN_EXACT_ENUMERATION_LIMIT_8')
     if any(s.operator not in ('NODE_SIGNATURE_MEANS','FINITE_SAMPLE','UNKNOWN') for s in c.information):
         return stop('ADAPTER_NOT_CONNECTED','FULL_INFORMATION_CANNOT_BE_DOWNGRADED_TO_MEAN_BOX')
     indices=model_information_indices(c)
     information=[c.information[i] for i in indices]
-    if not information or any(s.operator!='NODE_SIGNATURE_MEANS' or s.availability!='EXACT_POPULATION_VALUE'
+    if not information or any(s.operator!='NODE_SIGNATURE_MEANS' or s.availability not in ('EXACT_POPULATION_VALUE','SYMBOLIC_POPULATION_OPERATOR')
                                 for s in information):
         return stop('NEEDS_INPUT','EXACT_POPULATION_SIGNATURE_MEANS_REQUIRED',
                     '请核对精确总体签名均值的来源、格子和数值；不能使用样本估计替代。')
+    availability={s.availability for s in information}
+    if len(availability)!=1:
+        return stop('ADAPTER_NOT_CONNECTED','MIXED_SYMBOLIC_NUMERIC_A4_NOT_CONNECTED')
+    symbolic=availability=={'SYMBOLIC_POPULATION_OPERATOR'}
     if any(not s.source_ids or not s.signature_cells or
            set(s.outcome_nodes)!={v.node for v in s.signature_cells} or
-           any(v.value is None for v in s.signature_cells) for s in information):
+           any((v.value is not None if symbolic else v.value is None) for v in s.signature_cells) for s in information):
         return stop('NEEDS_INPUT','COMPLETE_EXACT_A4_VALUE_LIST_REQUIRED',
-                    '请补齐已声明总体均值的完整对象/自身处理/同伴暴露格子及精确数值。')
+                    '请核对总体均值覆盖的对象、自身状态与同伴状态；符号信息不填数值，已声明精确数值的信息不能漏值。')
     # Partitioning one original table into several JSON rows does not change A4.
     # Only concatenate exact disjoint cells from one source document. Records
     # may additionally cite definitions, but only after explicit evidence-role
@@ -66,21 +80,29 @@ def prepare(entry,raw,c,out,*,_mean_order_context=None):
     cells=[(v.node,v.own,v.exposure) for s in information for v in s.signature_cells]
     if len(cells)!=len(set(cells)):
         return stop('CHECK_BLOCKED','DUPLICATE_A4_CELL_ACROSS_ENTRIES')
+    if _mean_order_context is not None and (c.exposure.kind!='STRICT_MAJORITY_TIES_LOW' or c.assignment.kind!='UNIFORM_FIXED_QUOTA'):
+        return stop('ADAPTER_NOT_CONNECTED','MEAN_ORDER_D2_E1_DOMAIN_REQUIRED')
     sf=c.mean_sufficiency
     if sf.value is False or sf.scope=='OTHER' or c.exposure.kind in ('NONE','OTHER'):
         return stop('ADAPTER_NOT_CONNECTED','BOUNDED_MEAN_SIGNATURE_MODEL_NOT_ADOPTED')
     if (sf.value is not True or sf.scope!='ALL_BINARY_ASSIGNMENTS' or
-        set(sf.covered_nodes)!=set(c.study.nodes) or c.exposure.kind!='STRICT_MAJORITY_TIES_LOW' or
+        set(sf.covered_nodes)!=set(c.study.nodes) or c.exposure.kind not in EXPOSURES or
         not c.exposure.source_ids):
         return stop('NEEDS_INPUT','ALL_MODEL_NODES_REQUIRE_MEAN_SUFFICIENCY',
-                    '该有限模型需另行确认全部对象、全部完整二元安排上的均值暴露充分性及 E1 暴露定义。')
+                    '该有限模型需另行确认全部对象、全部完整二元安排上的均值暴露充分性及明确的同伴状态定义。')
     b=c.bounded_model
     if b is None:
         return stop('NEEDS_INPUT','EXPLICIT_BOUNDS_AND_COMPLETE_MODEL_REQUIRED',
                     '请明确科学界限及其含义，并单独说明总体信息和模型限制是否完整。')
     if b.bounds_kind=='OTHER' or b.bounds_scope=='OTHER':
         return stop('ADAPTER_NOT_CONNECTED','BOUNDS_KIND_OR_SCOPE_NOT_CONNECTED')
-    method, model_decisions = METHOD, MODEL_DECISIONS
+    method = (COUNT_METHOD if c.exposure.kind=='EXACT_TREATED_NEIGHBOR_COUNT' else METHOD
+              if c.exposure.kind=='STRICT_MAJORITY_TIES_LOW' else FINITE_METHOD)
+    if c.assignment.kind!='UNIFORM_FIXED_QUOTA':method=FINITE_METHOD
+    if symbolic:method=FINITE_METHOD
+    if symbolic and _mean_order_context is not None:
+        return stop('ADAPTER_NOT_CONNECTED','SYMBOLIC_MEAN_ORDER_NOT_CONNECTED')
+    model_decisions = MODEL_DECISIONS
     if _mean_order_context is not None:
         from .network_mean_order_dispatch import METHOD as order_method, model_decisions as order_decisions
         order_model = _mean_order_context['model']
@@ -106,10 +128,11 @@ def prepare(entry,raw,c,out,*,_mean_order_context=None):
         any(v.lower is None or v.upper is None or not v.source_ids for v in b.bounds)):
         return stop('NEEDS_INPUT','BOUNDED_MODEL_DECLARATIONS_INCOMPLETE',
                     '请核对逐对象界限、均值界或结果界、期间单位、全部安排范围，以及信息完整性和无额外耦合限制声明。')
+    from . import network_design_adapter as design_adapter
     binding=sha(dict(entry=entry,raw=raw,method=method,source_indices=indices))
     row=dict(method=method,source_indices=indices,applicability='NOT_CHECKED_BEFORE_SCIENCE_REVIEW',
         reading_worksheet=worksheet(binding,READING_DECISIONS),
-        science_worksheet=worksheet(binding,(*BASE_CONDITIONS,*('a4_source_'+str(i) for i in indices),*model_decisions)))
+        science_worksheet=worksheet(binding,(*BASE_CONDITIONS,*design_adapter.extra_science(c),*('a4_source_'+str(i) for i in indices),*model_decisions)))
     out.update(methods=[row],proposed_target=target_coordinates(c),
         a4_projection=dict(kind='DISJOINT_EXACT_CELLS_FROM_ONE_SOURCE_DOCUMENT',
             source_documents=sorted(source_documents),original_entry_indices=indices,cell_count=len(cells)))
@@ -130,21 +153,33 @@ def compile_reviewed(plan,row,records,authority):
     st,target,sources,assumptions,sig,suff=_compile(plan,dict(row,method=R2),records,authority)
     c=NetworkPolicyReading.model_validate(plan['facts']);b=c.bounded_model
     information=[c.information[i] for i in row['source_indices']]
+    symbolic=all(s.availability=='SYMBOLIC_POPULATION_OPERATOR' for s in information)
     if len(sources)>1:
         from pfn_pipeline.identification_policy_r2 import declare_signature_population_source
         nodes={n for source in sources for n in source.outcome_nodes}
         grouped=declare_signature_population_source(st,sig,source_id='table_'+native_sha(c.information),
             operator='NODE_SIGNATURE_MEANS',outcome_nodes=tuple(n for n in st.node_order if n in nodes),
-            admission='ADMITTED',availability='EXACT_POPULATION_VALUE',
+            admission='ADMITTED',availability='SYMBOLIC_POPULATION_OPERATOR' if symbolic else 'EXACT_POPULATION_VALUE',
             signature_cells=tuple(cell for source in sources for cell in source.signature_cells),
             provenance='Reviewed exact table partition: '+sha(plan['a4_projection'])+'; plan:'+plan['plan_sha256'])
         sources=(grouped,)
     inquiry=FixedPolicyInquiryV21(study=st,target=target,assumptions=assumptions,
         r2_signature=sig,r2_sufficiency=suff,r2_sources=sources)
-    info=BoundedMeanInformation(version=VERSION,inquiry_sha256=native_sha(inquiry),
+    info_type,version=BoundedMeanInformation,VERSION
+    if symbolic:
+        from .bounded_finite_contract import SymbolicMeanInformation,SYMBOLIC_VERSIONS
+        info_type,version=SymbolicMeanInformation,SYMBOLIC_VERSIONS['policy']
+    elif c.assignment.kind!='UNIFORM_FIXED_QUOTA' or sig.grouping not in ('strict_majority_ties_low','exact_treated_neighbor_count'):
+        from .bounded_finite_contract import FiniteMeanInformation,POLICY_VERSION
+        info_type,version=FiniteMeanInformation,POLICY_VERSION
+    elif sig.grouping=='exact_treated_neighbor_count':
+        from .bounded_count_contract import CountMeanInformation,POLICY_VERSION
+        info_type,version=CountMeanInformation,POLICY_VERSION
+    info=info_type(version=version,inquiry_sha256=native_sha(inquiry),
         source_id=sources[0].source_id,source_sha256=native_sha(sources[0]),
         information_scope='EXACT_LISTED_SIGNATURE_MEANS_ONLY',
-        model_scope='SIGNATURE_MEANS_AND_NODE_BOUNDS_ONLY',availability='EXACT_POPULATION_VALUE',
+        model_scope='SIGNATURE_MEANS_AND_NODE_BOUNDS_ONLY',
+        availability='SYMBOLIC_POPULATION_OPERATOR' if symbolic else 'EXACT_POPULATION_VALUE',
         values=[dict(node=v.node,own=v.own,exposure=v.exposure,value=v.value) for s in information for v in s.signature_cells],
         bounds=[dict(node=v.node,lower=v.lower,upper=v.upper) for v in b.bounds],
         bounds_kind=b.bounds_kind,bounds_scope=b.bounds_scope,outcome_definition=b.outcome_definition,
@@ -164,28 +199,35 @@ def execute_reviewed(plan,row,records,review,out):
     from . import bounded_policy_solver as producer,bounded_policy_verify as verifier
     try:
         inquiry,info=compile_reviewed(plan,row,records,review.authority)
-        validate_model(inquiry,info)
-        original=input_digest(inquiry,info)
+        validate,solve,replay,digest=validate_model,producer.solve,verifier.replay,input_digest
+        if row['method']==COUNT_METHOD:
+            from .bounded_count_contract import validate_model as validate,input_digest as count_digest
+            from .bounded_count_solver import solve_policy as solve
+            from .bounded_count_verify import replay_policy as replay
+            digest=lambda q,i:count_digest(q,i,'policy')
+        if row['method']==FINITE_METHOD:
+            from .bounded_finite_contract import validate_model as validate,input_digest as finite_digest
+            from .bounded_finite_solver import solve_policy as solve
+            from .bounded_finite_verify import replay_policy as replay
+            digest=lambda q,i:finite_digest(q,i,'policy')
+        validate(inquiry,info)
+        original=digest(inquiry,info)
         out['backend_called']=True
-        certificate=producer.solve(inquiry,info)
+        certificate=solve(inquiry,info)
         cert_digest=sha(certificate)
-        if (input_digest(inquiry,info)!=original or
-            verifier.replay(certificate,inquiry=inquiry,information=info) is not True or
-            input_digest(inquiry,info)!=original or sha(certificate)!=cert_digest):
+        if (digest(inquiry,info)!=original or
+            replay(certificate,inquiry=inquiry,information=info) is not True or
+            digest(inquiry,info)!=original or sha(certificate)!=cert_digest):
             raise DispatchError('CHECK_BLOCKED','BOUNDED_INPUT_OR_REPLAY_MISMATCH')
-        interval=[certificate['lower'],certificate['upper']]
         status=certificate['status']
-        claim=dict(kind=status,representation='EXACT_IDENTIFIED_INTERVAL',
-            target=deepcopy(plan['proposed_target']),target_sha256=certificate['target_sha256'],
-            interval=interval,width=certificate['width'],sharp=True,informative=certificate['informative'],
-            logical_range=deepcopy(certificate['logical_range']),
-            numeric_value=interval[0] if status=='POINT' else None)
-        answer=dict(method=METHOD,mathematical_claim=claim,certificate=deepcopy(certificate),
+        from .bounded_mean_formula import mathematical_claim
+        claim=mathematical_claim(certificate,plan['proposed_target'])
+        answer=dict(method=row['method'],mathematical_claim=claim,certificate=deepcopy(certificate),
             native_evidence=dict(inquiry=canonical_data(inquiry),information=canonical_data(info)),
             independent_replay=True,reviewed_input_sha256=original)
-        return dict(out,state=status,answers=[answer],independent_replay=True,primary_method=METHOD,
+        return dict(out,state=status,answers=[answer],independent_replay=True,primary_method=row['method'],
             mathematical_claim=deepcopy(claim),certificate=deepcopy(certificate),
-            attempts=[dict(method=METHOD,state=status,independent_replay=True)],partial_fallback_performed=False)
+            attempts=[dict(method=row['method'],state=status,independent_replay=True)],partial_fallback_performed=False)
     except BoundedPolicyUnavailable as exc:
         return dict(out,state=exc.state,reason_code=exc.reason,
             diagnostic_only=True,incompatibility_proved=False,partial_fallback_performed=False)

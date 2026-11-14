@@ -1,4 +1,4 @@
-"""Unapproved fixed-policy facts for existing D1-D6/E1-E5 contracts.
+"""Unapproved fixed-policy facts for existing D1-D8/E1-E5 contracts.
 
 No route choice, scientific admission, target completion, or bound inference.
 """
@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 from .source_reference_wire import catalog, expand
 from .information_field_rules import require as require_information_rule
 from .network_design_reading import assignment_schema, validate_assignment_ownership, PROBABILITIES_DESCRIPTION
+from .assignment_semantics import FACT_KIND_DESCRIPTION, FIXED_COUNT_DESCRIPTION
 
 VERSION = 'network-policy-reading-1'
 COUNT_RULE = 'BINARY为0/1结果；COUNT为非负整数次数；CONTINUOUS为连续数值结果。计数均值不是整数，COUNT不要求Poisson、不授予有限矩、上界、暴露充分性或PARTIAL。OTHER包括无明确数值含义的类别，UNKNOWN表示未知。'
@@ -46,20 +47,26 @@ class Study(Cited):
 
 class Assignment(Cited):
     model_config = ConfigDict(json_schema_extra=assignment_schema)
-    kind: Literal['INDEPENDENT_BERNOULLI', 'UNIFORM_FIXED_QUOTA', 'TWO_GROUP_FIXED_QUOTA', 'CLUSTER_BERNOULLI', 'MULTI_GROUP_FIXED_QUOTA', 'TWO_STAGE_QUOTA_MIXTURE', 'UNEQUAL_PROBABILITY_FIXED_QUOTA', 'RERANDOMIZED_BALANCED', 'OTHER', 'UNKNOWN']
+    kind: Literal['INDEPENDENT_BERNOULLI', 'UNIFORM_FIXED_QUOTA', 'TWO_GROUP_FIXED_QUOTA', 'CLUSTER_BERNOULLI', 'MULTI_GROUP_FIXED_QUOTA', 'TWO_STAGE_QUOTA_MIXTURE', 'UNEQUAL_PROBABILITY_FIXED_QUOTA', 'RERANDOMIZED_BALANCED', 'OTHER', 'UNKNOWN'] = Field(description=FACT_KIND_DESCRIPTION)
     probabilities: dict[str,str] | None = Field(description=PROBABILITIES_DESCRIPTION)
-    fixed_count: StrictInt | None
+    fixed_count: StrictInt | None = Field(description=FIXED_COUNT_DESCRIPTION)
     groups: list[list[str]] | None = None
     treated_quotas: list[StrictInt] | None = None
     clusters: list[list[str]] | None = None
     cluster_probabilities: list[str] | None = None
     quota_profiles: list[list[StrictInt]] | None = None
     profile_probabilities: list[str] | None = None
-    treated_sets: list[list[str]] | None = None
-    set_probabilities: list[str] | None = None
-    unit_weights: dict[str,str] | None = None
-    balance_covariates: dict[str,dict[str,str]] | None = None
-    balance_tolerance: str | None = None
+    treated_sets: list[list[str]] | None = Field(default=None,description='D7/D8基础抽签的完整处理名单，与set_probabilities逐一对应；不是只列重随机化接受后的名单。与unit_weights二选一。')
+    set_probabilities: list[str] | None = Field(default=None,description='对应treated_sets的基础抽签精确概率，总和为1；D8的接受概率另由平衡规则计算。')
+    unit_weights: dict[str,str] | None = Field(default=None,description='D7/D8基础抽签的单位权重，名单概率正比于入选单位权重乘积。原文明示均匀固定名额时，每个对象填1；只给名额但未说明均匀或其他概率规则时保持null。D8同样需要该字段或treated_sets/set_probabilities，不得只填平衡规则。')
+    balance_covariates: dict[str,dict[str,str]] | None = Field(default=None, description=(
+        '仅RERANDOMIZED_BALANCED使用。外层键是处理前变量名，内层键是study.nodes中的对象编号，'
+        '内层值为该对象的变量值（有理数字符串）。每个变量必须覆盖全部研究对象。'
+        '结构为{变量名:{对象编号:数值}}，不能把对象编号放在外层或只填写分组描述；'
+        '原文未提供时保持null，不补造数值。'))
+    balance_tolerance: str | None = Field(default=None, description=(
+        '仅RERANDOMIZED_BALANCED使用：每个已列处理前变量的处理组均值与对照组均值'
+        '之差的绝对值上限，有理数字符串；不是方差或单个对象的差。未给出则保持null。'))
 
     @model_validator(mode='after')
     def field_ownership(self):
@@ -83,13 +90,27 @@ class Assumptions(Record):
 
 
 class Exposure(Cited):
+    model_config = ConfigDict(json_schema_extra={'allOf':[
+        {'if':{'properties':{'kind':{'const':'WEIGHTED_EXPOSURE'}}},
+         'then':{},
+         'else':{'properties':{'weights':{'type':'null'},'mode':{'type':'null'}}}}
+    ]})
     kind: Literal['STRICT_MAJORITY_TIES_LOW', 'THREE_LEVEL_TREATED_NEIGHBOR_FRACTION', 'PRETREATMENT_CORE_COLLABORATOR_MAJORITY', 'EXACT_TREATED_NEIGHBOR_COUNT', 'ANY_TREATED_NEIGHBOR', 'WEIGHTED_EXPOSURE', 'GROUPED_EXPOSURE', 'NONE', 'OTHER', 'UNKNOWN']
     core_collaborators: dict[str,list[str]] | None = None
     # Fixed-weight exposure: nonnegative neighbour weights and an exact mode.
     weights: dict[str,str] | None = None
-    mode: Literal['sum', 'proportion'] | None = None
+    mode: Literal['sum', 'proportion'] | None = Field(default=None,
+        description='仅WEIGHTED_EXPOSURE使用；准确邻居人数等其他种类必须为null。人数由kind定义，不重复填写sum。')
     # Grouped exposure: per-group treated-neighbour counts, stable labels.
     groups: dict[str,list[str]] | None = None
+
+    @model_validator(mode='after')
+    def weighted_field_ownership(self):
+        # Missing weighted parameters remain representable for clarification;
+        # component validation still forbids execution until both are supplied.
+        if self.kind != 'WEIGHTED_EXPOSURE' and (self.weights is not None or self.mode is not None):
+            raise ValueError('NONWEIGHTED_EXPOSURE_REQUIRES_NULL_WEIGHTS_AND_MODE')
+        return self
 
 
 class FirstStageExclusion(Cited):

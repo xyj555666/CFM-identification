@@ -33,8 +33,8 @@
 | `cfm_id_llm/record_files.py` | 列映射、稳定ID、有限记录覆盖检查 |
 | `cfm_id_llm/file_coordinates.py`、`upload_receipt.py` | 确定性的坐标展开与读取回执，不补语义或科学许可 |
 | `demo/input-files.js`、`demo/backend/` | 网页上传、本地预览、实际文件复验与识别交接 |
-| `demo/tests/test_file_capability_coverage.py` | 全部18个登记方法的文件交接、执行、重放、未审／拒绝阻断 |
+| `demo/tests/test_file_capability_coverage.py` | 全部22个登记方法的文件交接、执行、重放、未审／拒绝阻断 |
 
-当前15个网络方法共享文件入口，涵盖政策均值、两政策差值、局部效应、R3、单臂和有限政策；3个DAG方法共享文档／字典入口，不提供单位网络到变量DAG的转换。具体方法和适用范围见[当前能力](CURRENT_SCOPE_ZH.md)。
+当前19个网络方法共享文件入口，涵盖政策均值、两政策差值、局部效应、R3、单臂和有限政策；3个DAG方法共享文档／字典入口，不提供单位网络到变量DAG的转换。具体方法和适用范围见[当前能力](CURRENT_SCOPE_ZH.md)。
 
 覆盖测试使用显式参考候选与合成审核，不能冒充LLM阅读准确率。新增方法必须更新登记及对应样板；方法清单与样板集合不同会报错。输入成功、科学条件采用、数学适用域和证书通过是不同环节。

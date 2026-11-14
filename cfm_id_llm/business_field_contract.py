@@ -4,6 +4,7 @@ No case matching, natural-language classifier, theorem selection or approval.
 Legacy descriptions remain byte-identical; richer definitions serve reviewers.
 """
 from dataclasses import asdict, dataclass
+from .assignment_semantics import A0_FAMILY_DESCRIPTION
 
 VERSION = 'business-field-contract-1'
 
@@ -24,7 +25,7 @@ COMMON = (
     Field('analysis_unit', '一次结果对应的研究单位及其名称范围。', '评价子集不代替完整研究单位集合。'),
     Field('treatment', '处理行动及原文给出的取值编码。', '目标安排不等于历史分配机制。'),
     Field('outcome', '结果变量、事件定义和取值编码。', '样本统计不等于结果定义或总体均值。'),
-    Field('assignment_family', '依历史分配规则提出的设计类别。', '全员未来启用不证明历史随机化；未给机制用UNRESOLVED。', shape='enum'),
+    Field('assignment_family', A0_FAMILY_DESCRIPTION, '全员未来启用不证明历史随机化；未给机制用UNRESOLVED。', shape='enum'),
     Field('assignment_law', '历史共同分配机制及其概率、名额等规则。', '目标政策、预算和独立结果不证明历史分配。', wire_description='历史处理分配机制；目标直接设定某变量不是历史机制。未提供则UNKNOWN，assignment_family同时为UNRESOLVED。'),
     Field('unit_network', '人、门店等研究对象之间的关系或相互影响。', '变量因果箭头不能替代对象关系；未描述不等于无边。', wire_description='研究对象之间的关系网络；变量因果图不能填这里。没有描述则UNKNOWN。'),
     Field('variable_causal_graph', '明确以变量为节点声明的因果关系；提取陈述，不批准图的科学真实性。', '对象间影响、随机化或均值暴露充分性本身不声明变量DAG；不能自行添因果箭头。', wire_description='原文明示的变量因果箭头/关系；仅有随机化、条件独立或均值暴露充分性不构成变量DAG，未描述则UNKNOWN。'),

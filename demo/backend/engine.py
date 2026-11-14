@@ -477,6 +477,7 @@ class Engine:
         """One explicit schema retry; never edit candidate data or grant review."""
         from pydantic import ValidationError
         from cfm_id_llm.fact_wire_models import model_for
+        from cfm_id_llm.network_design_reading import check_component_structure, ComponentStructureError
         from cfm_id_llm import file_coordinates as fact_coordinates
         from cfm_id_llm import network_file_binding
         from cfm_id_llm.network_files import NetworkFileError
@@ -497,8 +498,11 @@ class Engine:
         model=model_for(entry)
         try:
             raw=read(entry)
-            if model is not None:model.model_validate(deepcopy(raw))
+            if model is not None:check_component_structure(model.model_validate(deepcopy(raw)))
             return raw
+        except ComponentStructureError as exc:
+            raw=run.artifacts['facts_candidate']
+            diagnostics=exc.diagnostics
         except (fact_coordinates.CoordinateError,NetworkFileError) as exc:
             raw=run.artifacts['facts_candidate']
             diagnostics=[dict(code=str(exc),path='/study or /information/arm_cells')]
@@ -519,7 +523,7 @@ class Engine:
             instruction='上次输出违反本次Schema/字段组合规则。请根据同一份原材料重新读取并输出完整候选；不添加条件、不自动补事实、不批准假设。后续来源与科学审核仍须执行。')),ensure_ascii=False)
         self.event(run,'READING_FACTS','读取输出存在字段组合错误，后台进行一次格式复查；原材料保持不变')
         raw=read(repair)
-        if model is not None:model.model_validate(deepcopy(raw))
+        if model is not None:check_component_structure(model.model_validate(deepcopy(raw)))
         self.save(run,'facts_format_retry_validation',dict(valid=True,scientific_approval=False))
         return raw
 

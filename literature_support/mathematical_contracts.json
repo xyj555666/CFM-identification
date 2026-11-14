@@ -288,6 +288,52 @@
       "literature_maps": [
         "literature_support/routes/binary_iv_late_ate.json"
       ]
+    },
+    {
+      "name": "D2/E4 有限均值模型：单政策和共同模型下两政策差值",
+      "native_route_ids": [
+        "BOUNDED_POLICY_MEAN_D2_E4",
+        "BOUNDED_POLICY_CONTRAST_D2_E4"
+      ],
+      "business_method_ids": [
+        "BOUNDED_POLICY_MEAN_D2_E4",
+        "BOUNDED_POLICY_CONTRAST_D2_E4"
+      ],
+      "mathematical_documents": [
+        "docs/BOUNDED_COUNT_MATH_ZH.md"
+      ],
+      "implementation_files": [
+        "cfm_id/bounded_count_contract.py",
+        "cfm_id/bounded_count_solver.py",
+        "cfm_id/bounded_count_verify.py",
+        "cfm_id/bounded_backends.py"
+      ],
+      "literature_maps": [
+        "literature_support/routes/bounded_count.json"
+      ]
+    },
+    {
+      "name": "D1–D6/E1–E5 有限均值模型：单政策和共同模型的两政策差值",
+      "native_route_ids": [
+        "BOUNDED_POLICY_MEAN_FINITE",
+        "BOUNDED_POLICY_CONTRAST_FINITE"
+      ],
+      "business_method_ids": [
+        "BOUNDED_POLICY_MEAN_FINITE",
+        "BOUNDED_POLICY_CONTRAST_FINITE"
+      ],
+      "mathematical_documents": [
+        "docs/FINITE_MEAN_BOX_MATH_ZH.md"
+      ],
+      "implementation_files": [
+        "cfm_id/bounded_finite_contract.py",
+        "cfm_id/bounded_finite_solver.py",
+        "cfm_id/bounded_finite_verify.py",
+        "cfm_id/bounded_backends.py"
+      ],
+      "literature_maps": [
+        "literature_support/routes/bounded_finite.json"
+      ]
     }
   ],
   "classification_guide": "literature_support/CLASSIFICATION_ZH.md",

@@ -567,7 +567,34 @@ function dagFormula(f){
  }
  return '';
 }
+function boundSymbol(s){return /^b[1-9][0-9]*$/.test(s)?'<msub><mi>b</mi><mn>'+s.slice(1)+'</mn></msub>':mathText(s);}
+function boundAffine(e){
+ const pieces=[];
+ for(const [s,coef] of Object.entries(e.terms||{})){
+  if(coef==='0')continue;
+  const negative=coef.startsWith('-'),abs=negative?coef.slice(1):coef;
+  pieces.push((negative?'<mo>−</mo>':pieces.length?'<mo>+</mo>':'')+(abs==='1'?'':numberMath(abs)+'<mo>·</mo>')+boundSymbol(s));
+ }
+ if(e.constant!=='0'||!pieces.length){const negative=e.constant.startsWith('-'),abs=negative?e.constant.slice(1):e.constant;pieces.push((negative?'<mo>−</mo>':pieces.length?'<mo>+</mo>':'')+numberMath(abs));}
+ return pieces.join('');
+}
+function boundFormulaHTML(c){
+ const f=c.bound_formula,t=c.target||{},symbol=t.kind?.includes('CONTRAST')?'Δ':'θ';
+ const interval=(lower,upper)=>'<mi>'+symbol+'</mi>'+(c.kind==='POINT'?'<mo>=</mo>'+lower:'<mo>∈</mo><mo>[</mo><mrow>'+lower+'</mrow><mo>,</mo><mrow>'+upper+'</mrow><mo>]</mo>');
+ const math=body=>'<div class="formula"><math display="block"><mrow>'+body+'</mrow></math></div>';
+ const row=(label,expression)=>'<mtr><mtd columnalign="right"><mi>'+label+'</mi><mo>(</mo><mi>b</mi><mo>)</mo><mo>=</mo></mtd><mtd columnalign="left"><mrow>'+expression+'</mrow></mtd></mtr>';
+ const bounds='<mtable rowspacing="0.7em">'+row('L',boundAffine(f.lower))+row('U',boundAffine(f.upper))+'</mtable>';
+ let html=c.kind==='POINT'?math(interval(boundAffine(f.lower),boundAffine(f.upper))):math(bounds)+'<p>识别范围为 <math><mi>'+symbol+'</mi><mo>∈</mo><mo>[</mo><mi>L</mi><mo>(</mo><mi>b</mi><mo>)</mo><mo>,</mo><mi>U</mi><mo>(</mo><mi>b</mi><mo>)</mo><mo>]</mo></math>。</p>';
+ const used=new Set([...Object.keys(f.lower.terms||{}),...Object.keys(f.upper.terms||{})]);
+ const parameters=(f.parameters||[]).filter(p=>used.has(p.symbol));
+ if(parameters.length)html+='<p class="muted">b 的下标对应已声明的总体均值，不是样本平均值。</p>';
+ if(Array.isArray(c.interval))html+='<p>代入本次提供的总体数值：</p>'+math(interval(numberMath(c.interval[0]),numberMath(c.interval[1])));
+ else html+='<p class="muted">此处给出计算公式；尚未代入总体数值。公式对下列允许范围内的总体均值成立。</p>';
+ if(f.parameters?.length){html+='<details class="bound-parameters"><summary>查看总体均值的定义'+(Array.isArray(c.interval)?'与代入值':'与公式适用范围')+'</summary><p>以下状态都沿用本次研究的处理编码、同伴状态定义及共同背景。未出现在公式中的已声明均值，也须符合模型范围。</p><table><thead><tr><th>符号</th><th>对象</th><th>本人状态</th><th>同伴状态</th><th>值或允许范围</th></tr></thead><tbody>'+(f.parameters||[]).map(p=>'<tr><td><math>'+boundSymbol(p.symbol)+'</math></td><td>'+esc(p.cell[0])+'</td><td>'+esc(p.cell[1])+'</td><td>'+esc(p.cell[2])+'</td><td>'+(p.value!==undefined?'<math>'+numberMath(p.value)+'</math>':'<math><mo>[</mo>'+numberMath(p.lower)+'<mo>,</mo>'+numberMath(p.upper)+'<mo>]</mo></math>')+'</td></tr>').join('')+'</tbody></table></details>';}
+ return html+'<details class="formula-origin muted"><summary>公式来源</summary><p>由识别库根据本次目标、总体信息与均值界限生成，证书已独立重放。数值代入不会替代对数据来源和科学条件的审核。</p></details>';
+}
 function formulaHTML(result){const c=result.mathematical_claim||{},t=c.target||{};let content='';
+ if(c.bound_formula)return boundFormulaHTML(c);
  const cert=result.certificate||{},sum='<munder><mo>∑</mo><mrow><mi>i</mi><mo>∈</mo><mi>V</mi></mrow></munder><msub><mi>w</mi><mi>i</mi></msub>';
  if(c.functional)content=dagFormula(c.functional);
  if(c.representation==='EXACT_IDENTIFIED_INTERVAL'&&Array.isArray(c.interval)&&c.interval.length===2)content='<mi>'+ (t.kind?.includes('CONTRAST')?'Δ':'θ') +'</mi><mo>∈</mo><mo>[</mo>'+numberMath(c.interval[0])+'<mo>,</mo>'+numberMath(c.interval[1])+'<mo>]</mo>';
@@ -601,7 +628,7 @@ function comparisonText(t){
  return t.assignment?'评价以下安排下的平均结果：'+policy(t.assignment)+'。':'以本次目标定义为准。';
 }
 function formulaGuide(t,c={}){
- if(c.representation==='EXACT_IDENTIFIED_INTERVAL')return '<p class="muted">'+(t.kind?.includes('CONTRAST')?'Δ 表示第一方案减去第二方案的平均结果差。':'θ 表示所指定政策下的平均结果。')+'</p>';
+ if(['EXACT_IDENTIFIED_INTERVAL','PARAMETRIC_IDENTIFIED_INTERVAL'].includes(c.representation))return '<p class="muted">'+(t.kind?.includes('CONTRAST')?'Δ 表示第一方案减去第二方案的平均结果差。':'θ 表示所指定政策下的平均结果。')+'</p>';
  if(t.kind==='SINGLE_ARM_MEAN')return '<p class="muted">i 是选定对象，Sᵢ 是所述同伴状态。此均值按原设计在该状态下的条件分配律平均其余安排，不把其余人逐一固定。</p>';
  if(t.kind==='FINITE_POLICY_MEAN')return '<p class="muted">外层权重是未来选择完整方案的概率，内层 wᵢ 是评价对象权重；两者均不同于历史试点的分配概率。</p>';
  if(t.averaging==='SHARED_PRETREATMENT_STRATUM'||t.averaging==='OWN_AND_NEIGHBOR_BINARY_FEATURE')return '<p class="muted">wᵢ 是评价对象权重；B 是共同处理前分层，Cᵢ 是本人二元特征与全部邻居中特征为1的人数。按各自总体分布求和；分层权重不是历史处理概率。</p>';
@@ -663,8 +690,8 @@ function resultHTML(result,estimate){
  const title=readingReasons[reason]?.[0]||(reason.startsWith('DECLARED_MODEL_EXCLUDES:')||reason.startsWith('REQUIRED_ASSUMPTION_NOT_ADOPTED:')?'当前方法所需条件未采用':reason.startsWith('ADDITIONAL_')?'附加声明尚未处理':names[state]||state);
  let html=`<article class="result-card ${good?'':'blocked'}"><div class="result-header"><h3>${esc(title)}</h3><span class="tag">${esc(result.independent_replay?'证书独立重放通过':good?'请核对验证记录':'未生成认证结论')}</span></div>`;
  if(result.independent_replay===true&&state==='POINT')html+='<p class="identification-conclusion">在下列假设下，本题目标可以由可用的总体信息唯一确定。下面的公式供后续估计使用。</p>';
- if(claimData){const t=claimData.target||{};html+=`<div class="result-facts"><div><b>关注的结果与背景</b><p>${esc(t.outcome||t.kind||'见数学目标')}</p><p class="muted">${esc(t.context||'')}</p>${t.treatment?`<p class="muted">处理含义：${esc(t.treatment)}</p>`:''}</div><div><b>评价对象与比较</b>${populationHTML(t)}<p>${esc(comparisonText(t))}</p></div></div><h4>识别公式</h4>${formulaHTML(result)}${formulaGuide(t,claimData)}`;if(state==='POINT')html+='<p class="muted">这是识别公式，效应数值需在估计阶段计算。</p>';}
- if(claimData?.representation==='EXACT_IDENTIFIED_INTERVAL')html+=`<p>${claimData.sharp===true?'在所列假设下，这是最紧的上下界（sharp bounds）。':'是否为最紧的上下界，请查看验证记录。'}${claimData.informative===false?'现有信息没有进一步缩小预先给定的范围。':''}</p>`;
+ if(claimData){const t=claimData.target||{};html+=`<div class="result-facts"><div><b>关注的结果与背景</b><p>${esc(t.outcome||t.kind||'见数学目标')}</p><p class="muted">${esc(t.context||'')}</p>${t.treatment?`<p class="muted">处理含义：${esc(t.treatment)}</p>`:''}</div><div><b>评价对象与比较</b>${populationHTML(t)}<p>${esc(comparisonText(t))}</p></div></div><h4>识别公式</h4>${formulaHTML(result)}${formulaGuide(t,claimData)}`;if(state==='POINT'&&!claimData.bound_formula)html+='<p class="muted">这是识别公式，效应数值需在估计阶段计算。</p>';}
+ if(['EXACT_IDENTIFIED_INTERVAL','PARAMETRIC_IDENTIFIED_INTERVAL'].includes(claimData?.representation))html+=`<p>${claimData.sharp===true?'在所列假设下，这是最紧的上下界（sharp bounds）。':'是否为最紧的上下界，请查看验证记录。'}${claimData.informative===false?'现有信息没有进一步缩小预先给定的范围。':''}</p>`;
  if(result.reason_code)html+=`<p><b>当前情况：</b>${esc({NEEDS_INPUT:'缺少必要信息，请回答页面列出的具体问题。',READING_RECHECK_REQUIRED:'模型的读取结果需要重新核对，识别尚未完成。',CHECK_BLOCKED:'读取或条件检查未通过，暂不能给出识别结果。',UNSUPPORTED:'当前识别方法还不能处理这类问题。',ADAPTER_NOT_CONNECTED:'已有处理流程尚未接通这类目标或条件。',REVIEW_REQUIRED:'有一项研究条件仍需明确。'}[state]||'本次分析未完成，具体原因见详细记录。')}</p>`;
  if(readingReasons[reason])html+=`<p>${esc(readingReasons[reason][1])}</p>`;
  if(result.processing_explanation)html+=`<p>${esc(result.processing_explanation)}</p>`;

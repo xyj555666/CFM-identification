@@ -8,11 +8,22 @@ from typing import Literal
 VERSION = 'joint-assignment-law-1'
 Profile = Literal['joint-assignment-law-1'] | None
 
+A0_FAMILY_DESCRIPTION = (
+    '依历史分配规则分类。合法类别为：INDEPENDENT_BERNOULLI（逐对象独立抽签）；'
+    'COMPLETE_RANDOMIZATION（全体固定大小名单等概率）；'
+    'STRATIFIED_FIXED_QUOTAS（各组分别均匀抽固定名额）；'
+    'CLUSTER_RANDOMIZATION（同簇对象一起处理，按簇抽签）；'
+    'OBSERVATIONAL（已说明非随机的业务选择机制）；'
+    'OTHER（已知但不属前述类别，包括两阶段名额混合、不等概率固定名额、重抽直至满足平衡条件）；'
+    'UNRESOLVED（历史机制或关键选择方式尚未明确）。完整规则保留在assignment_law，OTHER不阻止后续细读。')
+FACT_KIND_DESCRIPTION = '历史分配机制：全体固定大小名单等概率为UNIFORM_FIXED_QUOTA；不等概率固定名额为UNEQUAL_PROBABILITY_FIXED_QUOTA；按基础抽签反复重抽直到满足平衡条件为RERANDOMIZED_BALANCED，保留基础概率与接受规则。不能只描述重抽前的均匀抽签，也不能用等价支持集的分组描述替代原机制。'
+FIXED_COUNT_DESCRIPTION = 'D2均匀固定名额、D7不等概率固定名额或D8基础抽签中明确的全体处理人数m。不暗示名单等概率；人数上限、一次样本实现、逐组名额不能替代。'
+
 GUIDANCE = '''分配方式的共同语义（只帮助阅读，不授予科学许可）：
 先区分历史试点的完整处理名单如何产生、一次实际名单、未来要评价的政策。后两项不能补充历史分配机制。网络中结果可能相互影响，与处理如何抽签是不同问题。
 均匀固定名额：在明确的N个对象中，每次恰好m个接受处理，全部大小为m的名单都等可能。每个完整名单的概率是1/C(N,m)，其余名单概率为0；这已经完整描述联合分配律，不要求另外提供逐对象概率，也不要求各对象独立抽签。把全部大小为m的组合列为选项再等概率选一个，含义相同。A0名称COMPLETE_RANDOMIZATION与专门事实名称UNIFORM_FIXED_QUOTA对应这一含义。
 逐对象独立抽签：对象之间独立地产生处理，概率可以相同也可以不同；不固定每次处理总数。A0与专门事实都用INDEPENDENT_BERNOULLI。原文明示独立抽签可填写此类别；未给概率时probabilities保留null，不能估计。不能把一次实际恰好m人接受处理当成固定名额设计。
-固定人数本身不意味着所有同人数名单等概率。明确的非均匀固定人数、重抽直到满足额外条件等机制，若现有类别无法表达，保留完整机制并用OTHER，不改写为均匀固定名额。只知道人数上限、平均人数或固定人数而未说明选择方式，类别保持未决：A0为UNRESOLVED，专门事实为UNKNOWN，不猜概率。
+固定人数本身不意味着所有同人数名单等概率。不等概率固定名额：A0用OTHER并保留完整规则，专门事实用UNEQUAL_PROBABILITY_FIXED_QUOTA。按基础抽签反复重抽直到满足平衡条件：A0用OTHER，专门事实用RERANDOMIZED_BALANCED，同时保留基础分配律和接受规则；不能只取基础均匀抽签，也不改写成分组固定名额。两者的fixed_count均记录全体处理人数，不暗示等概率。只知道人数上限、平均人数或固定人数而未说明选择方式，类别保持未决：A0为UNRESOLVED，专门事实为UNKNOWN，不猜概率。
 分组分别独立、均匀抽固定名额：A0用STRATIFIED_FIXED_QUOTAS；专门事实的两个组用TWO_GROUP_FIXED_QUOTA，多个组用MULTI_GROUP_FIXED_QUOTA，保留groups和treated_quotas。即使总人数固定，也不能忽略分组限制而当成全体均匀抽签。整簇一起处理、不同簇独立抽签：A0用CLUSTER_RANDOMIZATION，专门事实用CLUSTER_BERNOULLI，保留clusters和cluster_probabilities；其他簇随机化仍按实际规则，不能一概当成独立簇抽签。
 两阶段名额混合：先按已知联合概率抽各组名额向量，再给定方案在各组独立均匀抽人。A0目前用OTHER并完整保留两阶段原文，专门事实可用TWO_STAGE_QUOTA_MIXTURE，保留groups、quota_profiles、profile_probabilities。A0粗类别OTHER不阻止后续细读，不能据此直接判数学库未覆盖。不能只取其中一阶段或以平均名额替代；第一阶段方案没有直接结果影响属于另外的科学声明，不能由设计推定。
 明确的自选、按业务决策等非实验安排，A0为OBSERVATIONAL；没有描述历史机制不等于观察性设计，保持UNRESOLVED。OTHER表示明确知道当前枚举无法表达的机制，不是未知信息的替代。专门事实入口的OTHER也不表示已经证明不可识别。
@@ -31,8 +42,8 @@ def describe(schema, *, specialist=False):
     """Describe existing fields only; never change the candidate wire schema."""
     if specialist:
         props = schema['$defs']['Assignment']['properties']
-        props['kind']['description'] = '按共同分配语义读历史机制。全体固定大小名单等概率足以填UNIFORM_FIXED_QUOTA；不要求逐对象概率。'
-        props['fixed_count']['description'] = '明确的全体均匀固定名额m；人数上限、样本实现、分组名额不能替代。'
+        props['kind']['description'] = FACT_KIND_DESCRIPTION
+        props['fixed_count']['description'] = FIXED_COUNT_DESCRIPTION
         props['probabilities']['description'] = '仅逐对象独立抽签的已知概率。联合均匀固定名额用fixed_count，probabilities为null。'
         descriptions = {
             'groups':'处理前完整不交组，列出组内对象；与逐组名额或名额向量的位置一致。',
@@ -46,4 +57,4 @@ def describe(schema, *, specialist=False):
             props[name]['description']=text+' 未给出时为null，不自动补全。'
     else:
         props = schema['$defs']['CompactCommon']['properties']
-        props['assignment_family']['description'] = '按共同分配语义分类历史机制。全体固定大小名单等概率是COMPLETE_RANDOMIZATION；固定人数但选择方式未知为UNRESOLVED；明确非均匀机制为OTHER。'
+        props['assignment_family']['description'] = A0_FAMILY_DESCRIPTION

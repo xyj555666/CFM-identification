@@ -17,6 +17,9 @@ FAMILY = 'NETWORK_POLICY_CONTRAST_FACTS'
 POINT_METHOD = 'R1B_ENDPOINT_DIFFERENCE'
 R2_METHOD = 'R2_ENDPOINT_DIFFERENCE'
 BOUNDED_METHOD = 'BOUNDED_POLICY_CONTRAST_D2_E1'
+COUNT_METHOD = 'BOUNDED_POLICY_CONTRAST_D2_E4'
+FINITE_METHOD='BOUNDED_POLICY_CONTRAST_FINITE'
+BOUNDED_METHODS=(BOUNDED_METHOD,COUNT_METHOD,FINITE_METHOD)
 SIDES = reading.SIDES
 PAIR_DECISIONS = ('two_complete_policies_and_first_minus_second_direction',
                   'common_evaluation_population_equal_weights_outcome_and_context')
@@ -98,7 +101,8 @@ def inspect_methods(entry, raw, *, note_review=None, information_evidence_review
         for field in ('node_order', 'unit_weights', 'treatment', 'outcome', 'context'):
             if targets['first'][field] != targets['second'][field]:
                 raise ValueError('COMMON_CONTRAST_COORDINATES_REQUIRED')
-        finite_method = mean_order.METHOD if order_context is not None else bounded.METHOD
+        finite_method = mean_order.METHOD if order_context is not None else next(
+            (m for m in bounded.METHODS if all(any(r['method']==m for r in plans[s]['methods']) for s in SIDES)),bounded.METHOD)
         bounded_pair = all(any(r['method'] == finite_method for r in plans[s]['methods']) for s in SIDES)
         base_methods = ((finite_method,) if bounded_pair else tuple(m for m in (policy.R1B,policy.R2)
             if all(any(r['method']==m for r in plans[s]['methods']) for s in SIDES)))
@@ -114,7 +118,7 @@ def inspect_methods(entry, raw, *, note_review=None, information_evidence_review
             if (first['source_indices']!=second['source_indices'] or
                     first['science_worksheet']['decisions']!=second['science_worksheet']['decisions']):
                 raise ValueError('COMMON_CONTRAST_REVIEW_SCOPE_REQUIRED')
-            method = {bounded.METHOD:BOUNDED_METHOD,mean_order.METHOD:mean_order.METHOD,
+            method = {bounded.METHOD:BOUNDED_METHOD,bounded.COUNT_METHOD:COUNT_METHOD,bounded.FINITE_METHOD:FINITE_METHOD,mean_order.METHOD:mean_order.METHOD,
                       policy.R1B:POINT_METHOD,policy.R2:R2_METHOD}[base_method]
             binding = sha(dict(entry=entry, raw=raw, endpoint_plans=plans, target=proposed, method=method))
             out['methods'].append(dict(method=method, source_indices=first['source_indices'],
@@ -145,7 +149,7 @@ def _compile_pair(plan, row, records, authority):
     inquiries, information = {}, {}
     for side in SIDES:
         endpoint = dict(plan['endpoint_plans'][side], plan_sha256=plan['plan_sha256'])
-        if row['method'] == BOUNDED_METHOD:
+        if row['method'] in BOUNDED_METHODS:
             inquiries[side], information[side] = bounded.compile_reviewed(endpoint, row, records, authority)
         else:
             method = policy.R2 if row['method']==R2_METHOD else policy.R1B
@@ -209,22 +213,30 @@ def _point(inquiries, plan, out, method=POINT_METHOD):
 def _bounded(inquiries, information, plan, out):
     from . import bounded_contrast_contract as contract
     from . import bounded_contrast_solver as producer, bounded_contrast_verify as verifier
-    contract.validate_pair(inquiries, information)
-    original = contract.input_digest(inquiries, information)
+    validate,solve,replay,digest=contract.validate_pair,producer.solve,verifier.replay,contract.input_digest
+    method=plan['methods'][0]['method']
+    if method==COUNT_METHOD:
+        from .bounded_count_contract import validate_pair as validate,input_digest as count_digest
+        from .bounded_count_solver import solve_contrast as solve
+        from .bounded_count_verify import replay_contrast as replay
+        digest=lambda q,i:count_digest(q,i,'contrast')
+    if method==FINITE_METHOD:
+        from .bounded_finite_contract import validate_pair as validate,input_digest as finite_digest
+        from .bounded_finite_solver import solve_contrast as solve
+        from .bounded_finite_verify import replay_contrast as replay
+        digest=lambda q,i:finite_digest(q,i,'contrast')
+    validate(inquiries, information)
+    original = digest(inquiries, information)
     out['backend_called'] = True
-    certificate = producer.solve(inquiries, information)
+    certificate = solve(inquiries, information)
     before = sha(certificate)
-    if (contract.input_digest(inquiries, information) != original or
-            verifier.replay(certificate, inquiries=inquiries, information=information) is not True or
-            contract.input_digest(inquiries, information) != original or sha(certificate) != before):
+    if (digest(inquiries, information) != original or
+            replay(certificate, inquiries=inquiries, information=information) is not True or
+            digest(inquiries, information) != original or sha(certificate) != before):
         raise DispatchError('CHECK_BLOCKED', 'JOINT_CONTRAST_INPUT_OR_REPLAY_MISMATCH')
-    interval = [certificate['lower'], certificate['upper']]
-    claim = dict(kind=certificate['status'], representation='EXACT_IDENTIFIED_INTERVAL',
-        target=deepcopy(plan['proposed_target']), target_sha256=certificate['target_sha256'],
-        interval=interval, width=certificate['width'], sharp=certificate['sharp'],
-        informative=certificate['informative'], logical_range=deepcopy(certificate['logical_range']),
-        numeric_value=interval[0] if certificate['status'] == 'POINT' else None)
-    return _success(out, BOUNDED_METHOD, claim, certificate,
+    from .bounded_mean_formula import mathematical_claim
+    claim=mathematical_claim(certificate,plan['proposed_target'])
+    return _success(out, method, claim, certificate,
         dict(inquiries=canonical_data(inquiries), information=canonical_data(information)), original)
 
 
@@ -251,12 +263,12 @@ def _execute_plan(plan, *, plan_review=None, native_reviews=None, research_proto
             raise DispatchError('CHECK_BLOCKED', 'DISPATCH_REVIEW_AUTHORITY_MISMATCH')
         if native_reviews is None:
             raise DispatchError('REVIEW_REQUIRED', 'CONTRAST_READING_AND_SCIENCE_REVIEWS_REQUIRED')
-        if not plan['methods'] or (any(r['method'] in (BOUNDED_METHOD,mean_order.METHOD) for r in plan['methods']) and len(plan['methods'])!=1):
+        if not plan['methods'] or (any(r['method'] in (*BOUNDED_METHODS,mean_order.METHOD) for r in plan['methods']) and len(plan['methods'])!=1):
             raise ValueError('EXACT_JOINT_METHOD_REQUIRED')
         by_method = native_reviews_from_json(plan,native_reviews)
         # Check every planned method before invoking either endpoint backend.
         for row in plan['methods']:
-            if row['method'] not in (POINT_METHOD,R2_METHOD,BOUNDED_METHOD,mean_order.METHOD):raise ValueError('UNKNOWN_CONTRAST_METHOD')
+            if row['method'] not in (POINT_METHOD,R2_METHOD,*BOUNDED_METHODS,mean_order.METHOD):raise ValueError('UNKNOWN_CONTRAST_METHOD')
             records=by_method[row['method']]
             for key,field in (('reading_review','reading_worksheet'),('science_review','science_worksheet')):
                 record=checked_review(records[key],row[field])
@@ -271,7 +283,7 @@ def _execute_plan(plan, *, plan_review=None, native_reviews=None, research_proto
             if row['method']==mean_order.METHOD:
                 return mean_order.execute_reviewed(plan,row,by_method[row['method']],review.authority,out)
             inquiries,information=_compile_pair(plan,row,by_method[row['method']],review.authority)
-            if row['method']==BOUNDED_METHOD:return _bounded(inquiries,information,plan,out)
+            if row['method'] in BOUNDED_METHODS:return _bounded(inquiries,information,plan,out)
             branch=out if len(plan['methods'])==1 else dict(out,attempts=[])
             try:
                 results.append(_point(inquiries,plan,branch,row['method']))

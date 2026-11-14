@@ -74,6 +74,9 @@ def diagnose(entry, candidate):
         # Advisory diagnostics must not disable the pre-existing source recheck
         # when an old custom validator raises an unwrapped arithmetic error.
         return []
+    from .network_design_reading import component_diagnostics
+    structural_rows = component_diagnostics(parsed)
+    if structural_rows:return structural_rows
     if entry.get('reader_id') in ('NETWORK_FIXED_POLICY_FACTS', 'NETWORK_POLICY_CONTRAST_FACTS'):
         dependency_rows = _definition_source_diagnostics(parsed.model_dump(mode='json'))
         if dependency_rows:return dependency_rows

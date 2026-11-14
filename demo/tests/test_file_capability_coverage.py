@@ -164,7 +164,9 @@ def test_file_intake_reading_native_execution_and_refusal(tmp_path, monkeypatch,
     from examples.business_dispatch_reference import approvals as dag_approvals
     reviews=approval_records(p) if is_network else dag_approvals(p)
     result=dispatch.execute(s,'q1',**o,**reviews)
-    assert result['state'] == ('PARTIAL' if name in ('partial_mean','partial_contrast','mean_order') else 'POINT')
+    assert result['state'] == ('PARTIAL' if name in (
+        'partial_mean','partial_contrast','mean_order','count_mean','count_contrast',
+        'finite_mean','finite_contrast') else 'POINT')
     assert result['independent_replay'] is True
     if is_network:
         assert o['candidate']['information'][0]['availability']=='FINITE_SAMPLE'

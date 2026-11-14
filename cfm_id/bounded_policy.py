@@ -13,6 +13,7 @@ from .bounded_policy_contract import (
     VERSION, BoundedMeanInformation, ReviewedBoundedPolicy,
     BoundedPolicyUnavailable, validate_model,
 )
+from .bounded_backends import policy_backend
 from .bounded_policy_solver import solve
 from .bounded_policy_verify import replay
 
@@ -23,7 +24,7 @@ def worksheet(bundle, raw, *, query_id, packet, context, information):
     if query_id not in bundle['question_slots']:
         raise ValueError('CURRENT_QUERY_REQUIRED')
     inquiry = context.core_port.bindings[query_id].inquiry
-    return dict(version=VERSION, query_id=query_id, bundle_sha256=sha(bundle),
+    return dict(version=policy_backend(information).version, query_id=query_id, bundle_sha256=sha(bundle),
         reading_sha256=sha(raw), context_sha256=sha(_context_snapshot(context)),
         packet_sha256=sha(packet), inquiry_sha256=sha(inquiry),
         information_sha256=sha(information))
@@ -52,8 +53,9 @@ def _result_row(out, qid, row):
 def submit(bundle, raw, *, query_id, packet=None, context=None, information=None,
            bounded_review=None, submission_review=None, assignment_review=None,
            synthetic_protocol_selected=False):
+    backend = policy_backend(information)
     out = ids.preview(bundle, raw)
-    out.update(bounded_version=VERSION, bounded_backend_called=False,
+    out.update(bounded_version=backend.version, bounded_backend_called=False,
                bounded_certificate_replayed=False)
     if 'question_binding' not in out or out['assignment_review']['state'] != 'REVIEW_REQUIRED':
         return out
@@ -70,15 +72,15 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
     if bounded_review is None or submission_review is None or assignment_review is None:
         return _state(out, query_id, 'REVIEW_REQUIRED', 'SEPARATE_BOUNDED_AND_EXISTING_REVIEWS_REQUIRED')
     try:
-        if type(information) is not BoundedMeanInformation or type(bounded_review) is not ReviewedBoundedPolicy:
+        if type(information) is not backend.information_type or type(bounded_review) is not backend.review_type:
             raise ValueError('SEPARATE_TYPED_BOUNDED_REVIEW_REQUIRED')
-        reviewed = ReviewedBoundedPolicy.model_validate(bounded_review.model_dump())
+        reviewed = backend.review_type.model_validate(bounded_review.model_dump())
         expected = worksheet(bundle, raw, query_id=query_id, packet=packet,
                              context=context, information=information)
         if any(getattr(reviewed, k) != v for k, v in expected.items()):
             raise ValueError('BOUNDED_REVIEW_STALE')
         inquiry = context.core_port.bindings[query_id].inquiry
-        validate_model(inquiry, information)
+        backend.validate(inquiry, information)
     except BoundedPolicyUnavailable as exc:
         return _state(out, query_id, exc.state, exc.reason)
     except (ValueError, TypeError, KeyError, AttributeError, ZeroDivisionError):
@@ -96,8 +98,8 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
         return out
     out['bounded_backend_called'] = True
     try:
-        certificate = solve(inquiry, information)
-        if not replay(certificate, inquiry=inquiry, information=information):
+        certificate = backend.solve(inquiry, information)
+        if not backend.replay(certificate, inquiry=inquiry, information=information):
             raise ValueError('INDEPENDENT_BOUNDED_REPLAY_FAILED')
     except BoundedPolicyUnavailable as exc:
         return _state(out, query_id, exc.state, exc.reason)
@@ -108,12 +110,12 @@ def submit(bundle, raw, *, query_id, packet=None, context=None, information=None
     out['bounded_review_receipt'] = dict(expected, review_sha256=sha(reviewed),
         approval_kind='SEPARATE_SYNTHETIC_ASSERTION_NOT_IDENTITY_AUTHENTICATION')
     _result_row(out, query_id, dict(query_id=query_id, status=certificate['status'],
-        route='BOUNDED_POLICY_MEAN_D2_E1', identified_interval=[certificate['lower'],certificate['upper']],
+        route=backend.route, identified_interval=[certificate['lower'],certificate['upper']],
         bounded_certificate_sha256=certificate['certificate_sha256'],
         bounded_certificate_replayed=True, verification_level='FINITE_MEAN_MODEL_REPLAY'))
     for view in out['query_views']:
         if view['query_id'] == query_id:
-            view.update(state=certificate['status'], route='BOUNDED_POLICY_MEAN_D2_E1',
+            view.update(state=certificate['status'], route=backend.route,
                 reason_code=None, bounded_certificate_replayed=True,
                 identified_interval=[certificate['lower'], certificate['upper']],
                 sharp=True, informative=certificate['informative'])

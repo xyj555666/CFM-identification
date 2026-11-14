@@ -133,9 +133,16 @@ def validate_model(inquiry, information):
 Existing R2 validation is reused without modifying it. The independent replay
 shares this typed contract, but no solver, exposure classifier or count engine.
 """
-    if type(inquiry) is not FixedPolicyInquiryV21 or type(information) is not BoundedMeanInformation:
+    return _validate_mean_model(inquiry, information, information_type=BoundedMeanInformation,
+        grouping='strict_majority_ties_low', domain_reason='BOUNDED_D2_E1_FINITE_DOMAIN_REQUIRED')
+
+
+def _validate_mean_model(inquiry, information, *, information_type, grouping, domain_reason,
+                         design_types=(CompleteRandomizationDesignV1,), extra_required=(), symbolic=False):
+    """Shared declarations only; callers fix their own finite theorem domain."""
+    if type(inquiry) is not FixedPolicyInquiryV21 or type(information) is not information_type:
         fail('CHECK_BLOCKED', 'TYPED_BOUNDED_MODEL_REQUIRED')
-    info = BoundedMeanInformation.model_validate(information.model_dump())
+    info = information_type.model_validate(information.model_dump())
     if info.inquiry_sha256 != sha(inquiry):
         fail('CHECK_BLOCKED', 'BOUNDED_INFORMATION_STALE')
     if inquiry.r1b_sources or len(inquiry.r2_sources) != 1:
@@ -147,21 +154,23 @@ shares this typed contract, but no solver, exposure classifier or count engine.
         _validate_study_target(st, target, sig, suff)
     except R2PolicyUnavailable as exc:
         fail('NEEDS_INPUT', exc.reason_code)
-    if (type(st.design()) is not CompleteRandomizationDesignV1
-            or sig.grouping != 'strict_majority_ties_low'
+    if (type(st.design()) not in design_types
+            or sig.grouping not in ((grouping,) if isinstance(grouping,str) else grouping)
             or len(st.node_order) > MAX_N):
-        fail('UNSUPPORTED', 'BOUNDED_D2_E1_FINITE_DOMAIN_REQUIRED')
+        fail('UNSUPPORTED', domain_reason)
     if st.outcome_kind not in ('continuous', 'binary'):
         fail('UNSUPPORTED', 'OUTCOME_REALIZATION_NOT_ADAPTED')
-    if (len(inquiry.assumptions) != len(REQUIRED)
-            or {a.name for a in inquiry.assumptions} != set(REQUIRED)):
+    required=(*REQUIRED,*extra_required)
+    if (len(inquiry.assumptions) != len(required)
+            or {a.name for a in inquiry.assumptions} != set(required)):
         fail('UNSUPPORTED', 'ADDITIONAL_A5_REQUIRES_JOINT_CONSTRAINT_SOLVER')
     if set(suff.covered_nodes) != set(st.node_order):
         fail('NEEDS_INPUT', 'ALL_MODEL_NODES_REQUIRE_MEAN_SUFFICIENCY')
     source = sources[0]
     if source.operator != 'NODE_SIGNATURE_MEANS':
         fail('UNSUPPORTED', 'FULL_LAW_CANNOT_BE_DOWNGRADED_TO_MEAN_BOX')
-    if (source.availability != 'EXACT_POPULATION_VALUE'
+    expected_availability='SYMBOLIC_POPULATION_OPERATOR' if symbolic else 'EXACT_POPULATION_VALUE'
+    if (source.availability != expected_availability or info.availability != expected_availability
             or source.admission not in ('ADMITTED', 'CERTIFIED')):
         fail('NEEDS_INPUT', 'REVIEWED_EXACT_POPULATION_MEANS_REQUIRED')
     if (source.study_scope_digest != st.shared_scope_digest
@@ -171,7 +180,7 @@ shares this typed contract, but no solver, exposure classifier or count engine.
             or source.signature_fingerprint != sig.signature_fingerprint
             or info.source_id != source.source_id or info.source_sha256 != sha(source)):
         fail('CHECK_BLOCKED', 'EXACT_A4_SOURCE_SCOPE_REQUIRED')
-    known = {(v.node, v.own, v.exposure): rational(v.value) for v in info.values}
+    known = {(v.node, v.own, v.exposure): None if symbolic else rational(v.value) for v in info.values}
     if len(known) != len(info.values) or set(known) != set(source.signature_cells):
         fail('NEEDS_INPUT', 'COMPLETE_EXACT_A4_VALUE_LIST_REQUIRED')
     bounds = {b.node: (rational(b.lower), rational(b.upper)) for b in info.bounds}
@@ -191,7 +200,7 @@ shares this typed contract, but no solver, exposure classifier or count engine.
             bounds = {n: (max(F(0), lo), min(F(1), hi)) for n, (lo, hi) in bounds.items()}
     if any(lo > hi for lo, hi in bounds.values()):
         fail('INCOMPATIBLE', 'EMPTY_BOUND_RANGE')
-    if any(not bounds[n][0] <= value <= bounds[n][1] for (n, _, _), value in known.items()):
+    if not symbolic and any(not bounds[n][0] <= value <= bounds[n][1] for (n, _, _), value in known.items()):
         fail('INCOMPATIBLE', 'A4_MEAN_OUTSIDE_SCIENTIFIC_BOUNDS')
     return st, target, known, bounds
 

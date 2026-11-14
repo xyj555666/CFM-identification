@@ -1,0 +1,29 @@
+{
+  "route_ids": [
+    "BOUNDED_POLICY_MEAN_FINITE",
+    "BOUNDED_POLICY_CONTRAST_FINITE"
+  ],
+  "mathematical_contract": "docs/FINITE_MEAN_BOX_MATH_ZH.md",
+  "status": "PROJECT_DERIVATION_WITH_EXTERNAL_CONTEXT",
+  "sources": [
+    {
+      "title": "Aronow and Samii (2017), Estimating average causal effects under general interference",
+      "url": "https://arxiv.org/abs/1305.6156",
+      "role": "Separates assignment design, exposure mapping and estimand; does not establish this entire box model."
+    },
+    {
+      "title": "Manski (2013), Identification of treatment response with social interactions",
+      "url": "https://doi.org/10.1111/j.1368-423X.2012.00368.x",
+      "role": "Identification/partial identification context; precise finite box assumptions and attainment proof are local."
+    }
+  ],
+  "scope": "Known D1-D6 randomization, E1-E5 all-arrangement mean sufficiency, complete exact means, node bounds, no additional coupling. <=12 nodes; synthetic reviewed entry. D2/E1 and D2/E4 protocol versions remain compatible.",
+  "schema_version": "literature-support-route-1",
+  "runtime_coverage_authority": "cfm_id.capability_registry.inventory",
+  "literature_scope": {
+    "source_ids": [
+      "aronow_samii2017_interference",
+      "manski2013_social_interactions"
+    ]
+  }
+}

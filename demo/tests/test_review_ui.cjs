@@ -342,6 +342,23 @@ test('symbol aliases are derived from variable roles and preserve multi-variable
  h.context.f.conditional.given.push('未声明变量');assert.throws(()=>vm.runInContext('dagFormula(f)',h.context),/Unbound/);
 });
 
+test('mean-box formulas keep symbolic parameters separate from numerical substitution',()=>{
+ const h=harness(registeredFixture());
+ const claim={kind:'PARTIAL',representation:'PARAMETRIC_IDENTIFIED_INTERVAL',
+   target:{kind:'FIXED_FULL_ASSIGNMENT_POLICY_CONTRAST'},
+   bound_formula:{lower:{constant:'1/4',terms:{b1:'-1'}},upper:{constant:'3/4',terms:{b1:'-1'}},
+     parameters:[{symbol:'b1',cell:['<station>',0,2],lower:'1/4',upper:'3/4'}]}};
+ h.context.r={mathematical_claim:claim};
+ let html=vm.runInContext('formulaHTML(r)',h.context);
+ assert.match(html,/<msub><mi>b<\/mi><mn>1<\/mn><\/msub>/);
+ assert.match(html,/尚未代入总体数值/);assert.doesNotMatch(html,/代入本次提供/);
+ assert.match(html,/&lt;station&gt;/);assert.match(html,/<mfrac>/);
+ assert.match(html,/<mtable/);assert.match(html,/识别范围为/);
+ h.context.r.mathematical_claim={...claim,representation:'EXACT_IDENTIFIED_INTERVAL',interval:['-1/4','1/4']};
+ html=vm.runInContext('formulaHTML(r)',h.context);assert.match(html,/代入本次提供的总体数值/);
+ assert.equal((html.match(/<math display="block">/g)||[]).length,2);
+});
+
 test('result conditions use executed evidence and never example-authored defaults',()=>{
  const h=harness(fixture());h.context.r={state:'POINT',independent_replay:true,certificate:{assumptions_used:['consistency','full_vector_randomization']}};
  const html=vm.runInContext('resultHTML(r,null,["预写答案：无混杂、无干扰"])',h.context);

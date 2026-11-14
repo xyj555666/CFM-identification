@@ -106,7 +106,7 @@
   },
   "exact_a4_values_and_complete_information_scope": {
     "label": "总体信息及可用范围已明确",
-    "meaning": "列出的数值按本模型视为精确总体均值，而且这些就是本模型允许使用的全部总体信息。",
+    "meaning": "本模型可用的总体均值及其覆盖范围已经列明；可以给出精确数值，也可以保留为符号。它们应包括本模型允许使用的全部总体信息。",
     "purpose": "求最紧界限需要明确哪些信息可用。一次有限样本算出的平均数不能直接充当精确总体均值。"
   },
   "scientific_bounds_kind_scope_units_and_all_nodes": {
