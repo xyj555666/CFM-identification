@@ -137,6 +137,7 @@ class Engine:
         return {'configured': bool(key), 'provider': provider, 'stored': 'PROCESS_MEMORY_ONLY'}
 
     def health(self, owner):
+        from .coverage import summary as coverage_summary
         with self.lock:
             credential=self.credentials.get(owner)
             if credential and time.time()-credential[2]>8*3600:
@@ -148,6 +149,7 @@ class Engine:
                           'information_data_descriptions','explicit_audit_findings','network_file_input','local_input_preview'],
                 reading_config=capabilities.reading_config().model_dump(mode='json'),
                 identification_capabilities=self.web_capabilities,
+                coverage_summary=coverage_summary(),
                 condition_terms=capabilities.presentation_catalog(),
                 model_calls=self.calls, call_limit=self.max_api_calls,
                 output_token_limits=dict(default=DEFAULT_OUTPUT_TOKENS,

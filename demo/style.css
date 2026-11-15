@@ -27,3 +27,7 @@
 .identification-purpose{border-left:3px solid var(--teal);padding:2px 18px;margin:0 0 26px;max-width:1000px}.identification-purpose h2{font-size:17px;margin:0 0 8px}.identification-purpose p{margin:5px 0;font-size:14px;line-height:1.8}.condition-groups li{margin-bottom:8px}.condition-definitions>ul{padding-left:0;list-style:none}.condition-explanation{border-top:1px solid var(--line);padding:14px 0}.condition-explanation p{font-size:13px;line-height:1.8;margin:7px 0}.condition-formal{font-size:12px;color:var(--muted)}.condition-formal summary{font-size:12px}.condition-context{font-size:13px;line-height:1.8}.identification-conclusion{font-size:14px;margin:12px 0 20px}.condition-heading-term{font-weight:400;margin-left:5px;font-size:11px;color:var(--muted)}
 
 .clarification-source{margin:14px 0}.clarification-source blockquote{max-height:180px;overflow:auto;margin:8px 0;padding:10px 14px;border-left:3px solid #b7d2ca;background:#f5f8f7}
+/* Contextual limits and stop reasons stay next to the actual result. */
+.method-scope{padding:12px;border-left:3px solid #b7cfc4;background:#f3f8f5;font-size:12px;line-height:1.8}.stop-next{line-height:1.8}.stop-questions{margin:16px 0;font-size:13px}.retained-restrictions blockquote{white-space:pre-wrap;overflow-wrap:anywhere;border-left:3px solid #d9c8ab;margin:10px 0;padding:8px 12px;background:#fffcf6}
+
+.formula-guide{margin:8px 0}.identification-purpose{margin-bottom:20px}.identification-purpose p{max-width:940px}

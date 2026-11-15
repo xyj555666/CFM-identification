@@ -101,7 +101,7 @@ if (require.main === module) {
     view.result={state:'READING_RECHECK_REQUIRED',reason_code:'COMPACT_SCHEMA_REJECTED'};
     const html=harness(view).element('#result').innerHTML;
     assert.doesNotMatch(html,/业务解释经过模型自动复核|问题已核对/);
-    assert.match(html,/尚未得到通过验证/);
+    assert.match(html,/读取或核对未通过/);
   });
   test('fixed-policy R1b uses three cards and one explicit confirmation; missing science still blocks',async()=>{
     const view=fixture('science');view.automatic_review=true;
@@ -420,4 +420,45 @@ test('clarifications ask for business facts without accepting assumptions or cha
  assert.match(h.element('#clarification-questions').innerHTML,/需要说明的原文/);
  assert.match(h.element('#clarification-questions').innerHTML,/&lt;script&gt;/);
  assert.doesNotMatch(h.element('#clarification-questions').innerHTML,/<script>/);
+ h.context.r={state:'NEEDS_INPUT',clarification_questions:['请说明参与范围。']};
+ assert.doesNotMatch(vm.runInContext('resultHTML(r,null,{questionsInForm:true})',h.context),/class="stop-questions"/);
+ assert.match(vm.runInContext('resultHTML(r)',h.context),/class="stop-questions"/);
+});
+
+test('stop explanations distinguish reading, unknown, refusal and unsupported constraints without changing results',()=>{
+ const h=harness(fixture());
+ const cases=[
+  [{state:'READING_RECHECK_REQUIRED',reason_code:'COMPACT_SCHEMA_REJECTED',clarification_questions:['请补充条件']},'reading',/无需重写/,/读取记录中还需核对/],
+  [{state:'NEEDS_INPUT',reason_code:'ALL_MODEL_NODES_REQUIRE_MEAN_SUFFICIENCY'},'missing',/尚未决定/,/默认采用/],
+  [{state:'ADAPTER_NOT_CONNECTED',reason_code:'DECLARED_MODEL_EXCLUDES:consistency'},'declined',/本次未采用/,/请补充条件/],
+  [{state:'ADAPTER_NOT_CONNECTED',reason_code:'ADDITIONAL_INFORMATION_OR_RESTRICTIONS_REQUIRE_SEPARATE_ADAPTER',reading_candidate:{additional_restrictions:[{text:'甲乙总体均值相等<script>x</script>'}]}},'coverage',/当前方法不能把它们全部纳入/,/<script>/],
+  [{state:'NEEDS_INPUT',reason_code:'UNKNOWN_CODE'},'missing',/也可能是模型遗漏/,/原材料确实缺项/],
+ ];
+ for(const [r,kind,yes,no] of cases){
+  h.context.r=clone(r);const before=JSON.stringify(h.context.r);
+  assert.equal(vm.runInContext('stopExplanation(r).kind',h.context),kind);
+  const html=vm.runInContext('resultHTML(r)',h.context);assert.match(html,yes);assert.doesNotMatch(html,no);
+  assert.equal(JSON.stringify(h.context.r),before);
+ }
+ assert.match(vm.runInContext('finiteClarification("请补充原文中的分配或科学条件字段：assignment.treated_sets/set_probabilities or unit_weights")',h.context),/各个名单的中签机会/);
+});
+
+test('usage page omits the coverage catalog and shows limits only for an actual size stop',()=>{
+ const h=harness(fixture());
+ vm.runInContext('renderUploadLimits()',h.context);assert.match(h.element('#network-import-limit').textContent,/由当前服务检查/);
+ h.context.metadata={groups:[{title:'实际登记能力',description:'范围有限'}],notes:['未接通的接口另列'],import_limits:{nodes:2000,edges:50000},finite_partial:{max_nodes:12,extended_design_max_nodes:8}};
+ vm.runInContext('coverageInfo=metadata;renderUploadLimits()',h.context);
+ assert.match(h.element('#network-import-limit').textContent,/2000 个对象/);
+ const source=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');assert.doesNotMatch(source,/coverage-help|coverage-content|上方能力范围|<span>结果说明<\/span>/);
+ h.context.r={state:'POINT',methods:[{method:'R1A_COMPOSITION'}],facts:{study:{nodes:Array(100).fill('a')}}};
+ assert.equal(vm.runInContext('methodScopeHTML(r)',h.context),'');
+ h.context.r={state:'ADAPTER_NOT_CONNECTED',reason_code:'EXTENDED_DESIGN_EXACT_ENUMERATION_LIMIT_8',reading_candidate:{study:{nodes:Array(9).fill('a')},assignment:{kind:'RERANDOMIZED_BALANCED'}}};
+ assert.match(vm.runInContext('resultHTML(r)',h.context),/最多支持 8 个对象/);
+ assert.match(vm.runInContext('stopExplanation(r).title',h.context),/规模上限/);
+ h.context.r.reason_code='BOUNDED_D1_D8_E1_E5_FINITE_DOMAIN_REQUIRED';
+ assert.doesNotMatch(vm.runInContext('stopExplanation(r).title',h.context),/规模上限/);
+ h.context.r={state:'PARTIAL',methods:[{method:'BOUNDED_POLICY_MEAN_FINITE'}],mathematical_claim:{representation:'EXACT_IDENTIFIED_INTERVAL'}};
+ assert.equal(vm.runInContext('methodScopeHTML(r)',h.context),'');
+ h.context.r={state:'REVIEW_REQUIRED',methods:[{method:'MEAN_ORDER_D2_E1'}]};
+ assert.equal(vm.runInContext('methodScopeHTML(r)',h.context),'');
 });
