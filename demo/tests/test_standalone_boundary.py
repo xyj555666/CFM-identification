@@ -37,9 +37,13 @@ runpy.run_path(sys.argv[0], run_name='__main__')
     assert '--port' in result.stdout
 
 
-def test_nine_examples_are_identification_only():
+def test_catalog_preserves_original_examples_and_identification_only_boundary():
     examples = json.loads((PROJECT_ROOT/'demo/examples.json').read_text('utf8'))
-    assert len(examples) == 9 and len({x['id'] for x in examples}) == 9
+    ids = {x['id'] for x in examples}
+    assert len(ids) == len(examples)
+    assert {'n100', 'lit_vaccine', 'lit_school', 'lit_seed_policy',
+            'lit_observational_peers', 'partial_policy', 'partial_mean_order',
+            'dag_backdoor', 'dag_frontdoor'} <= ids
     for item in examples:
         assert item['case']['business_question'] and item['case']['sources']
         assert 'data' not in item and 'data_schema' not in item
