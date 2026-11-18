@@ -50,11 +50,32 @@ def test_invalid_unapproved_or_stale_source_roles_never_call_math(bad,monkeypatc
     r=dispatch.execute(s,'q1',**o,information_evidence_review=rec,research_protocol_selected=True)
     assert not r['backend_called'] and r['mathematical_claim'] is None and not r['answers']
 
-def test_multiple_information_entries_are_not_merged_by_evidence_review():
+def test_partitioned_single_table_requires_fresh_source_review_and_replays():
     s,e,o,rec=fixture();partition_table(o['candidate'])
-    with pytest.raises(ValueError,match='SINGLE_NETWORK_INFORMATION'):evidence.prepare(e,o['candidate'])
+    original=deepcopy(o['candidate'])
+    w=evidence.prepare(e,o['candidate'])
+    assert len(w['entry_source_ids'])==7
+    # The old single-record review cannot approve a different candidate.
     r=dispatch.execute(s,'q1',**o,information_evidence_review=rec,research_protocol_selected=True)
     assert not r['backend_called'] and r['mathematical_claim'] is None
+    rec['binding_sha256']=w['binding_sha256']
+    p=dispatch.inspect_methods(s,'q1',**o,information_evidence_review=rec)
+    r=dispatch.execute(s,'q1',**o,information_evidence_review=rec,**approval_records(p))
+    assert r['state']=='PARTIAL' and r['independent_replay']
+    assert o['candidate']==original
+    assert r['information_evidence_receipt']['information_entry_count']==7
+    assert not r['information_evidence_receipt']['information_entries_merged']
+
+
+def test_partitioned_table_cannot_hide_an_entry_without_table_evidence():
+    s,e,o,rec=fixture();partition_table(o['candidate'])
+    o['candidate']['information'][0]['source_ids']=o['candidate']['exposure']['source_ids']
+    rec['binding_sha256']=evidence.prepare(e,o['candidate'])['binding_sha256']
+    with pytest.raises(ValueError,match='EACH_INFORMATION_ENTRY_MUST_CITE_ORIGINAL_TABLE'):
+        from cfm_id_llm.network_policy_reading import NetworkPolicyReading
+        from cfm_id_llm.network_fact_protocols import network_fact_protocol
+        decoded=network_fact_protocol(e.get('network_fact_contract')).parse(e['bundle'],o['candidate'],binding=e['fact_binding_sha256'])
+        evidence.check(e,o['candidate'],NetworkPolicyReading.model_validate(decoded['facts']),rec)
 
 @pytest.mark.parametrize('block',['sufficiency','bounds','additional','coupling','duplicate'])
 def test_valid_source_role_review_does_not_release_independent_blockers(block,monkeypatch):

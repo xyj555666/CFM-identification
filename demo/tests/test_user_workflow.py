@@ -238,3 +238,43 @@ def test_target_reread_preserves_input_invalidates_reviews_and_runs_only_once(tm
     assert not run.reviews and not run.review_sheets and not run.review_templates
     assert run.artifacts['target_reread_prior']['feedback'] == feedback
     assert not engine._reread_business(run, feedback) and len(seen) == 1
+
+
+def test_comparator_conflict_retries_actual_fields_once_without_inventing_a_fact_gap(tmp_path,monkeypatch):
+    from demo.backend import intake_stop
+    engine,run,_=automatic_fixture(tmp_path,monkeypatch)
+    diagnostic=dict(code='UNEXPECTED_COMPARATOR',path='queries.q1.semantics.comparator',
+                    detail='A distribution target has a separate comparator.')
+    sheet=dict(items={'q1':dict(missing_coordinates=[],wire_issues=[diagnostic],
+        allowed_dispositions=['PENDING','READING_ERROR'],original_audit_actions=[
+            dict(code='A4_POPULATION_INFORMATION_OPEN',owner='BUSINESS_USER')])})
+    semantics=dict(intervention=dict(value='设为1',basis='EXPLICIT_TEXT',evidence=[]),
+                   comparator=dict(value='设为0',basis='EXPLICIT_TEXT',evidence=[]))
+    inspected=dict(state='READING_RECHECK_REQUIRED',wire_gate={'issues':[diagnostic]},
+        report={'draft':{'queries':[dict(query_id='q1',target={'kind':'INTERVENTIONAL_DISTRIBUTION'},
+            business_goal={'value':'分别设为0和1时的结果分布'},semantics=semantics)]}})
+    monkeypatch.setattr(intake_stop,'prepare',lambda *_:deepcopy(sheet))
+    monkeypatch.setattr(engine,'call',lambda *_:pytest.fail('No need for an LLM to restate a deterministic field conflict'))
+    calls=[];original_case=deepcopy(run.case)
+    monkeypatch.setattr(engine,'_read_case',lambda *args,**kwargs:calls.append(kwargs))
+    assert engine._review_intake_stop(run,inspected)
+    feedback=calls[0]['target_feedback'];row=feedback['queries'][0]
+    assert row['blocking_diagnostics']==[diagnostic]
+    assert row['first_arrangement']==semantics['intervention'] and row['second_arrangement']==semantics['comparator']
+    assert '不另造comparator' in row['target_definition']
+    assert 'A4_POPULATION_INFORMATION_OPEN' not in json.dumps(feedback)
+    assert run.case==original_case and not run.reviews and run.result is None
+    assert engine._review_intake_stop(run,inspected) and len(calls)==1
+    assert run.result['state']=='READING_RECHECK_REQUIRED'
+    assert run.result['reason_code']=='TARGET_FIELD_CONTRACT_CONFLICT_AFTER_REREAD'
+    assert not run.result.get('mathematical_claim') and not run.user_question
+
+
+@pytest.mark.parametrize('item',[
+    dict(missing_coordinates=[{'field':'time_horizon'}],wire_issues=[{'code':'UNEXPECTED_COMPARATOR'}],allowed_dispositions=['READING_ERROR']),
+    dict(missing_coordinates=[],wire_issues=[{'code':'UNEXPECTED_COMPARATOR'}],allowed_dispositions=['READING_ERROR','MATERIAL_GAP']),
+    dict(missing_coordinates=[],wire_issues=[{'code':'CANONICAL_RECHECK_REQUIRED'}],allowed_dispositions=['READING_ERROR']),
+])
+def test_other_intake_stops_still_require_original_source_review(item):
+    from demo.backend import intake_stop
+    assert intake_stop.contract_reread_feedback({'items':{'q1':item}}, {}) is None

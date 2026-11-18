@@ -17,10 +17,10 @@ METHODS = {
  'R1A_COMPOSITION': '网络直接、同伴与局部总效应',
  'R1B_FULL_ASSIGNMENT': '完整政策均值',
  'R2_MEAN_SIGNATURE': '均值充分性下的政策均值',
- 'BOUNDED_POLICY_MEAN_D2_E4': '同伴人数模型中的政策均值界限',
- 'BOUNDED_POLICY_MEAN_FINITE': '有限网络模型中的政策均值界限',
- 'BOUNDED_POLICY_CONTRAST_FINITE': '有限网络模型中的两政策联合界限',
- 'BOUNDED_POLICY_CONTRAST_D2_E4': '同伴人数模型中的两政策联合界限',
+ 'BOUNDED_POLICY_MEAN_D2_E4':'同伴人数模型中的政策均值界限',
+ 'BOUNDED_POLICY_CONTRAST_D2_E4':'同伴人数模型中的两政策联合界限',
+ 'BOUNDED_POLICY_MEAN_FINITE':'有限网络模型中的政策均值界限',
+ 'BOUNDED_POLICY_CONTRAST_FINITE':'有限网络模型中的两政策联合界限',
  'BOUNDED_POLICY_MEAN_D2_E1': '有限模型中的政策均值界限',
  'R1B_ENDPOINT_DIFFERENCE': '完整政策差值',
  'R2_ENDPOINT_DIFFERENCE': '均值充分性下的政策差值',
@@ -124,7 +124,7 @@ def science_summary(run):
  from cfm_id.capability_registry import plan_binding
  plan=run.plan or {}
  if run.review_kind!='science' or not plan.get('plan_sha256'):return None
- attention=[];conditions=[];condition_items=[];info_brief=[]
+ attention=[];conditions=[];condition_items=[];info_brief=[];notes_resolved=False
  def add_condition(text,key=None,*,term='',label='',category='science'):
   if text in conditions:return
   conditions.append(text)
@@ -207,12 +207,16 @@ def science_summary(run):
      info.append('所述总体信息覆盖：'+'、'.join(source.get('outcome_nodes',[]))+'；具体条件范围与原材料一致。')
      info_brief.append('总体信息：'+('符号形式，未代入数值' if source.get('availability')=='SYMBOLIC_POPULATION_OPERATOR' else '以材料声明为准'))
    if not info:raise ValueError('WEB_INFORMATION_PRESENTATION_MISSING')
-  for key in ('additional_restrictions','unresolved'):
-   if facts.get(key):raise ValueError('WEB_UNRESOLVED_DECLARATIONS')
+  if facts.get('additional_restrictions'):raise ValueError('WEB_UNRESOLVED_DECLARATIONS')
+  if facts.get('unresolved'):
+   from .note_review import released_for_plan
+   if not released_for_plan(plan):raise ValueError('WEB_UNRESOLVED_DECLARATIONS')
+   notes_resolved=True
   if plan.get('rejected_fields'):raise ValueError('WEB_REJECTED_DECLARATIONS')
  except (ValueError,KeyError,TypeError) as exc:
   attention.append(str(exc));first=['当前条件尚不能形成完整确认摘要。'];info=['请保留当前材料并查看具体停止原因。']
  return dict(contract=CONTRACT,plan_sha256=plan.get('plan_sha256'),review_bindings=bindings(run),
+  reading_notes_resolved=not attention and notes_resolved,
   methods=[r['method'] for r in plan.get('methods',[])],
   cards=[dict(title='要回答什么',lines=first),dict(title='本次需确认的条件',lines=conditions or ['条件尚未明确']),dict(title='依据什么信息',lines=info)],
   condition_items=condition_items,information_brief=list(dict.fromkeys(info_brief)) or info,

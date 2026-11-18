@@ -433,6 +433,8 @@ test('stop explanations distinguish reading, unknown, refusal and unsupported co
   [{state:'ADAPTER_NOT_CONNECTED',reason_code:'DECLARED_MODEL_EXCLUDES:consistency'},'declined',/本次未采用/,/请补充条件/],
   [{state:'ADAPTER_NOT_CONNECTED',reason_code:'ADDITIONAL_INFORMATION_OR_RESTRICTIONS_REQUIRE_SEPARATE_ADAPTER',reading_candidate:{additional_restrictions:[{text:'甲乙总体均值相等<script>x</script>'}]}},'coverage',/当前方法不能把它们全部纳入/,/<script>/],
   [{state:'NEEDS_INPUT',reason_code:'UNKNOWN_CODE'},'missing',/也可能是模型遗漏/,/原材料确实缺项/],
+  [{state:'READING_RECHECK_REQUIRED',reason_code:'TARGET_FIELD_CONTRACT_CONFLICT_AFTER_REREAD'},'reading',/目标类别和比较两端相互冲突/,/请补充条件/],
+  [{state:'ADAPTER_NOT_CONNECTED',reason_code:'ADDITIONAL_EFFECT_MODEL_REQUIRES_SEPARATE_ADAPTER',reading_candidate:{additional_restrictions:[{text:'不另行假定暴露充分性'}]}},'coverage',/若读取有误，应重读/,/请补充条件/],
  ];
  for(const [r,kind,yes,no] of cases){
   h.context.r=clone(r);const before=JSON.stringify(h.context.r);
@@ -441,6 +443,7 @@ test('stop explanations distinguish reading, unknown, refusal and unsupported co
   assert.equal(JSON.stringify(h.context.r),before);
  }
  assert.match(vm.runInContext('finiteClarification("请补充原文中的分配或科学条件字段：assignment.treated_sets/set_probabilities or unit_weights")',h.context),/各个名单的中签机会/);
+ assert.match(vm.runInContext('finiteClarification("请说明理论识别可以使用的总体观测信息及覆盖范围；有限样本不能代替。")',h.context),/若附件已有说明，请指出位置/);
 });
 
 test('usage page omits the coverage catalog and shows limits only for an actual size stop',()=>{

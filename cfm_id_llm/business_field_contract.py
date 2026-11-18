@@ -42,10 +42,10 @@ SEMANTICS = (
     Field('intervention', '本子问题要评价的具体行动或干预取值。', '不自动补完整比较，也不是历史抽签规则。', section='semantics', question='希望评价对象在什么具体做法或状态下的结果？'),
     Field('comparator', '明确请求比较的另一个状态。', '单状态目标不另造对照；是否不适用由目标类型约束。', section='semantics', allows_inapplicable=True, question='希望与哪一种具体做法或状态比较？'),
     Field('neighbor_exposure', '目标要求固定或平均的同伴处理口径。', '不忽略干扰，不自行推算目标下暴露并称为原文明示。', section='semantics', question='比较本人状态时同伴状态如何保持或平均；若比较同伴影响，具体比较哪两种状态？'),
-    Field('aggregation', '目标结果量及汇总方式、权重；也包括单对象的明确均值/概率。', '尚未决定的权重不是已知值，保留UNKNOWN；不写识别求解公式。', section='semantics', wire_description='目标明确要求的汇总运算和权重，例如全体等权均值；不写识别公式。未指定就UNKNOWN。', question='整体结果按什么方式汇总，各对象是否等权？'),
+    Field('aggregation', '目标结果量及汇总方式、权重；也包括单对象的明确均值/概率。', '尚未决定的权重不是已知值，保留UNKNOWN；不写识别求解公式。', section='semantics', wire_description='目标明确要求的结果量、汇总运算和权重，例如全体等权均值、单对象均值或事件概率；不写识别公式。未指定就UNKNOWN。', question='整体结果按什么方式汇总，各对象是否等权？'),
     Field('time_horizon', '目标评价的时点或时间段。', '不能用历史观测时间补未来时点。', section='semantics', question='希望评价实施后的哪个时点或时间段？'),
     Field('policy_assignment', '完整指定名单或随机政策；选择政策时保留约束。', '评价子集不缩减完整处理安排；编码/名单若写入value也须有引用。', section='semantics', allows_inapplicable=True, question='希望评价哪项分配规则，或在什么约束下选择名单？'),
-    Field('standardization_distribution', '目标明确要求对协变量取值、同伴状态或其余完整安排按什么分布平均。', '跨研究对象的等权或加权汇总只放aggregation，不在此重复；未另行指定分布时UNKNOWN。不能从已有总体分布或历史抽签分布反推目标，不改变已指定权重。', section='semantics', wire_description='仅填目标明确要求按某分布平均的口径；已有联合总体信息、指定控制变量均不填这里。未指定就UNKNOWN。'),
+    Field('standardization_distribution', '目标明确要求对协变量取值、同伴状态或其余完整安排按什么分布或规则平均。', '跨研究对象的等权或加权汇总只放aggregation，不在此重复；目标未指定平均规则时UNKNOWN。原文明说按原试点规则平均，应保留这个目标口径，即使规则的概率或名额尚未提供；缺少规则参数由事实层另行记录，不补概率，也不将已明确的目标改成UNKNOWN。不能仅凭已有总体分布或历史抽签分布反推目标，不改变已指定权重。', section='semantics', wire_description='仅填原文明确要求的平均口径，可引用原试点规则；规则参数缺失另交事实层记录。已有联合总体信息、指定控制变量均不填这里。目标未指定平均规则才用UNKNOWN。'),
 )
 
 QUERY = (

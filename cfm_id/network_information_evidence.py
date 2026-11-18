@@ -29,8 +29,8 @@ def _worksheet(entry,raw,c):
     from .network_bounded_dispatch import model_information_indices
     indices=model_information_indices(c)
     information=[c.information[i] for i in indices]
-    if not contrast and (entry.get('reader_id')!='NETWORK_FIXED_POLICY_FACTS' or len(information)!=1):
-        raise ValueError('SINGLE_NETWORK_INFORMATION_ENTRY_REQUIRED')
+    if not contrast and entry.get('reader_id')!='NETWORK_FIXED_POLICY_FACTS':
+        raise ValueError('NETWORK_POLICY_INFORMATION_REQUIRED')
     if not information or any(info.operator!='NODE_SIGNATURE_MEANS' or
             info.availability not in ('EXACT_POPULATION_VALUE','SYMBOLIC_POPULATION_OPERATOR') for info in information) or len({info.availability for info in information})!=1:
         raise ValueError('EXACT_SIGNATURE_TABLE_REQUIRED')
@@ -46,10 +46,10 @@ def _worksheet(entry,raw,c):
         source_catalog={s:catalog[s] for s in ids},
         instruction='独立确认全部总体均值坐标来自同一个原始信息表，数值或符号形式与材料一致；其他引用仅用于解释对象、编码、暴露或期间，不包含另一份总体信息、额外方程或约束。无法确认就保持PENDING或拒绝，不能删除引用来通过。此审核不批准科学条件。',
         scientific_approval=False,is_approval=False)
-    if contrast:
+    if contrast or len(information)>1:
         result.update(information_entries=[info.model_dump(mode='json') for info in information],
             entry_source_ids={str(i):list(c.information[i].source_ids) for i in indices},
-            scope='One original population-mean table, consistently numeric or symbolic, possibly partitioned into disjoint records; both ordered targets and the unchanged full candidate are bound. Every record must cite the table. No new information, equality or coupling may be classified as a definition.')
+            scope='One original population-mean table, consistently numeric or symbolic, possibly partitioned into disjoint records; the unchanged target and full candidate are bound. Every record must cite the table. No new information, equality or coupling may be classified as a definition.')
     else:result['information']=information[0].model_dump(mode='json')
     if len(indices)!=len(c.information):
         result['original_entry_indices']=indices
@@ -74,7 +74,7 @@ def check(entry,raw,c,record):
     table_docs={w['source_catalog'][s]['doc_id'] for s in r.table_source_ids}
     if len(table_docs)!=1:
         raise ValueError('ONE_ORIGINAL_TABLE_DOCUMENT_REQUIRED')
-    if w['version']==CONTRAST_VERSION and any(not set(ids)&set(r.table_source_ids)
+    if 'entry_source_ids' in w and any(not set(ids)&set(r.table_source_ids)
             for ids in w['entry_source_ids'].values()):
         raise ValueError('EACH_INFORMATION_ENTRY_MUST_CITE_ORIGINAL_TABLE')
     if r.disposition=='REJECTED':raise DispatchError('CHECK_BLOCKED','INFORMATION_EVIDENCE_REVIEW_REJECTED')
@@ -82,6 +82,6 @@ def check(entry,raw,c,record):
     receipt=dict(version=w['version'],review=r.model_dump(mode='json'),review_sha256=sha(r.model_dump(mode='json')),
         table_documents=sorted(table_docs),supporting_documents=sorted({w['source_catalog'][s]['doc_id'] for s in r.supporting_source_ids}),
         candidate_modified=False,information_entries_merged=False,scientific_approval=False)
-    if w['version']==CONTRAST_VERSION:
+    if 'information_entries' in w:
         receipt['information_entry_count']=len(w['information_entries'])
     return receipt

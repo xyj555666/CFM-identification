@@ -8,13 +8,18 @@ from pydantic import Field, model_validator
 from .network_policy_reading import Cited
 
 CONDITIONS = ('MEAN_EXPOSURE_SUFFICIENCY','OUTCOME_EXPOSURE_SUFFICIENCY')
+STATUS_RULE = (
+    'NOT_ADOPTED表示本次不依赖该假设，不表示假设被证明为假；UNDECIDED表示采用与否尚未决定。'
+    'ASSERTED_FALSE只用于原文断言该性质不成立。允许或不排除差异（如“仍可能不同”）'
+    '并不断言差异实际存在，不能仅据此填ASSERTED_FALSE；结合上下文区分不作此假设与采用态度未定。'
+    'ADOPTED、PROPOSED、CONFLICTING分别表示采用、拟采用和声明冲突。'
+    '这些状态只记录原意，不批准科学假设；确实断言不成立时也不能降为NOT_ADOPTED。')
 RULE = (
     'assumption_choices只记录原文明确谈及的可选假设及采用态度。MEAN_EXPOSURE_SUFFICIENCY'
     '表示固定本人处理和同伴分组后，完整安排的其他差别不再改变总体均值；'
     'OUTCOME_EXPOSURE_SUFFICIENCY表示同一对象在这些完整安排下的潜在结果逐个相同，'
     '不只是平均值相同。按原文选择，不互相替代，也不自动增补另一项采用态度。'
-    'NOT_ADOPTED表示本次不依赖该假设，不表示假设被证明为假；UNDECIDED表示采用与否尚未决定；'
-    'ASSERTED_FALSE表示原文断言该性质不成立。ADOPTED、PROPOSED、CONFLICTING分别表示采用、拟采用和声明冲突。'
+    + STATUS_RULE +
     'scope=CURRENT_STUDY只用于这项选择适用于当前研究，范围不同用OTHER，范围不清用UNKNOWN。'
     '未谈及则列表为空，不凭沉默补态度。每项必须引用说明假设、态度及范围的原文。'
     '已有scientific_statements中的必要条件仍只在那里填写，不重复。'
@@ -25,8 +30,9 @@ RULE = (
 
 class AssumptionChoice(Cited):
     condition: Literal['MEAN_EXPOSURE_SUFFICIENCY','OUTCOME_EXPOSURE_SUFFICIENCY']
-    status: Literal['ADOPTED', 'PROPOSED', 'NOT_ADOPTED', 'UNDECIDED', 'ASSERTED_FALSE', 'CONFLICTING']
-    scope: Literal['CURRENT_STUDY', 'OTHER', 'UNKNOWN'] = Field(description=RULE)
+    status: Literal['ADOPTED', 'PROPOSED', 'NOT_ADOPTED', 'UNDECIDED', 'ASSERTED_FALSE', 'CONFLICTING'] = Field(description=STATUS_RULE)
+    scope: Literal['CURRENT_STUDY', 'OTHER', 'UNKNOWN'] = Field(description=
+        '此项采用态度适用的研究范围：当前研究用CURRENT_STUDY，其他研究用OTHER，范围不清用UNKNOWN。范围未知不代表采用态度未知。')
 
     @model_validator(mode='after')
     def cited(self):

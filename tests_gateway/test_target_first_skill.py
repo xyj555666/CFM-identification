@@ -74,3 +74,32 @@ def test_target_role_definitions_match_schema_and_review():
         assert schema['$defs'][owner]['properties'][name]['description']==rule.meaning+' '+rule.excludes
         assert skill.review_definition(rule)['meaning']==rule.meaning
         assert skill.recheck_field_roles(['/queries/0/'+('semantics/' if rule.section=='semantics' else '')+name])[0]['field_role']==rule.meaning+' '+rule.excludes
+
+
+def test_distribution_contract_preserves_all_values_without_a_contrast_operand():
+    s,req,schema=prepared();raw=deepcopy(s.candidate);q=raw['queries'][0]
+    q['kind']='INTERVENTIONAL_DISTRIBUTION'
+    q['comparison_order']['operation']='NOT_APPLICABLE'
+    validator=Draft202012Validator(schema)
+    # This was accepted by the advertised schema but rejected by the gate.
+    assert not validator.is_valid(raw)
+    q['semantics']['second_arrangement']={'state':'NOT_APPLICABLE'}
+    q['semantics']['first_arrangement']['value']='分别将参加培训设为0和1'
+    validator.validate(raw)
+    from cfm_id_llm.target_first_reading import NETWORK_TARGET_DEFINITIONS
+    assert NETWORK_TARGET_DEFINITIONS[q['kind']] in schema['$defs']['CompactQuery']['properties']['kind']['description']
+    assert '全部取值或自由参数' in skill.review_definition(skill.FIRST)['excludes']
+    assert '明确只问某个取值则只保留该值' in skill.review_definition(skill.FIRST)['excludes']
+
+
+def test_noncontrast_schema_retains_unknown_states_and_does_not_reclassify_contrasts():
+    s,req,schema=prepared();validator=Draft202012Validator(schema)
+    validator.validate(s.candidate)  # The existing two-policy difference stays valid.
+    from cfm_id_llm.compact_formulator import _NO_COMPARISON
+    for kind in _NO_COMPARISON:
+        raw=deepcopy(s.candidate);q=raw['queries'][0]
+        q['kind']=kind.value;q['comparison_order']['operation']='NOT_APPLICABLE'
+        assert not validator.is_valid(raw)
+        for value in ('UNKNOWN',{'state':'MISSING','reason':'原文尚未决定','refs':['s0001']}):
+            q['semantics']['second_arrangement']=value
+            validator.validate(raw)

@@ -4,13 +4,14 @@ Historical requests remain unchanged. No answer repair, source completion or
 semantic approval is performed here. Native mathematical code is not involved.
 """
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from hashlib import sha256
 from importlib.resources import files
 import json
 import re
 from . import target_first_operands as previous
-from .business_field_contract import Field
+from .business_field_contract import Field, fields as business_fields
+from .target_first_reading import NETWORK_TARGET_DEFINITIONS
 
 CONTRACT = 'target-first-skill-1'
 COMMON_FIELDS = previous.COMMON_FIELDS
@@ -28,15 +29,20 @@ RULE = Field('conditioning_context', '用户明确要求在某个处理前背景
 PEER = Field('neighbor_exposure', '本问明确指定或要求平均的同伴处理状态。',
     '不是计算同伴状态的暴露定义。完整政策已经指定各对象安排时，不再次生成同伴状态，用UNKNOWN。'
     '局部问题保留本题同伴条件，引用问句；确实用到状态定义时同时引用定义。',section='semantics')
-AGGREGATION = Field('aggregation', '本问的汇总运算与权重，例如名单内等权平均。',
-    '结果定义由outcome保存，不在这里重复；单对象可写其均值或概率，不能改变评价名单。',section='semantics')
+AGGREGATION = next(rule for rule in business_fields('semantics') if rule.name=='aggregation')
+FIRST = replace(previous.FIRST,
+    meaning='本问要求的安排：差值中是被减数一端；单个水平中是指定安排；干预分布中是要设定的变量及原问的取值范围。',
+    excludes=previous.FIRST.excludes+
+    '对INTERVENTIONAL_DISTRIBUTION，问随干预取值变化的结果时保留全部取值或自由参数；'
+    '变量的0/1编码不是指定只干预为1。明确只问某个取值则只保留该值，不能扩展。分别求各取值下的分布不另设相减的第二端。')
 KIND = Field('kind', '按实际比较的安排范围选择目标类别，而非按业务给它的简称。',
     '本人变化而同伴状态相同是DIRECT_EFFECT；本人相同而同伴变化是SPILLOVER_EFFECT；'
     '本人和同伴状态都变化、其余安排按设计条件平均是LOCAL_TOTAL_EFFECT。'
     'TOTAL_EFFECT要求两份完整政策的均值差；不能仅因原文叫总效应或total effect就选它。'
     '单份完整政策的均值是FIXED_POLICY_VALUE；其他目标按Schema保留，不强行改成完整政策。'
+    + NETWORK_TARGET_DEFINITIONS['INTERVENTIONAL_DISTRIBUTION'] +
     '类别不是识别证明；缺失或未决定的比较内容仍保留未知。',section='query',shape='enum')
-REVIEW_RULES={x.name:x for x in (RULE,PEER,AGGREGATION,KIND)}
+REVIEW_RULES={x.name:x for x in (RULE,PEER,AGGREGATION,FIRST,KIND)}
 
 def skill_manifest():
     data=files('cfm_id_llm').joinpath(RESOURCE).read_bytes()
@@ -92,14 +98,22 @@ def describe(schema):
         defs[owner]['properties'][name]['description']=rule.meaning+' '+rule.excludes
     # The existing parser owns kind/operation compatibility; publish it too.
     from .compact_evidence_contract import allowed_operations
+    from .compact_formulator import _NO_COMPARISON
     defs['CompactQuery']['allOf']=[]
     inverse={'INTERVENTION_MINUS_COMPARATOR':'FIRST_MINUS_SECOND'}
     for kind in defs['TargetKind']['enum']:
         operations=sorted({inverse.get(o,o) for o in allowed_operations(kind)} &
                           {'FIRST_MINUS_SECOND','UNSPECIFIED','NOT_APPLICABLE'})
+        properties={'comparison_order':{'properties':{'operation':{'enum':operations}}}}
+        if kind in _NO_COMPARISON:
+            # Match the existing gate exactly: unresolved/missing remains
+            # unresolved. Never delete a supplied operand to make a query pass.
+            properties['semantics']={'properties':{'second_arrangement':{
+                'not':{'type':'object','required':['state'],
+                       'properties':{'state':{'enum':['STATED','INTERPRETED']}}}}}}
         defs['CompactQuery']['allOf'].append({
             'if':{'required':['kind'],'properties':{'kind':{'const':kind}}},
-            'then':{'properties':{'comparison_order':{'properties':{'operation':{'enum':operations}}}}}})
+            'then':{'properties':properties}})
     return ''
 
 def format_guide(schema):

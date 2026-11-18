@@ -72,6 +72,7 @@ class Run:
     submission: dict | None = None
     plan: dict | None = None
     reviews: dict = field(default_factory=dict)
+    dag_fact_audit: dict | None = None
     review_kind: str | None = None
     review_sheets: dict = field(default_factory=dict)
     review_templates: dict = field(default_factory=dict)
@@ -92,6 +93,7 @@ class Run:
     automatic_a0_format_repairs: int = 0
     automatic_fact_format_repairs: int = 0
     automatic_focused_stages: set = field(default_factory=set)
+    automatic_audit_length_retries: set = field(default_factory=set)
     user_question: dict | None = None
     lock: object = field(default_factory=threading.RLock)
 
@@ -349,8 +351,12 @@ class Engine:
         request=intake.prepare_request(run.intake)
         if target_feedback is not None:
             request=deepcopy(request)
+            # Preserve the prior wire answer for a located reread. It is a
+            # comparison aid, never evidence or a source of inherited approval.
+            prior=run.artifacts.get('target_reread_prior',{}).get('artifacts',{}).get('a0_candidate')
             request['user_prompt']+='\n\n'+json.dumps(dict(
-                reread_reason=target_feedback, instruction='后台在当前业务解释中定位到问题，以上反馈及候选均不是业务证据。请独立重读原文，并按实际字段定义重新返回整份 A0。若涉及局部效应类别，分别核对两端本人与同伴的状态是否变化。保留未定内容和所有问题，不增加科学条件。'),ensure_ascii=False)
+                reread_reason=target_feedback, previous_candidate=deepcopy(prior),
+                instruction='后台在当前业务解释中定位到问题。previous_candidate是上一版待核对回答，反馈与候选均不是业务证据。请按原文和字段定义逐项核对，返回整份 A0。修正被指出的问题，同时检查其余字段，保留原文支持的目标、取值范围和未定内容；不能因修正某字段而改写其他字段的含义，也不能照抄错误。若涉及局部效应类别，分别核对两端本人与同伴的状态是否变化。不增加科学条件；新回答仍需完整审核。'),ensure_ascii=False)
         self.event(run,'READING','正在读取研究问题、比较方式和评价对象')
         candidate=self.call(run,request,'a0')
         run.intake=intake.receive_candidate(run.intake,candidate,request_sha256=request['request_sha256'])
@@ -398,6 +404,8 @@ class Engine:
         # that request's redaction boundary.
         def observe(text):self.save(run,stage+'_raw_response',self._clean({'content':text},(key,)))
         limit=self.longcat_fact_max_tokens if alias=='longcat' and stage=='facts' else DEFAULT_OUTPUT_TOKENS
+        if alias=='longcat' and stage.endswith('_length_retry'):
+            limit=max(DEFAULT_OUTPUT_TOKENS, self.longcat_fact_max_tokens)
         client=self.provider_factory(**options,api_key=key,timeout=300,max_tokens=limit,observer=observe)
         try:
             value=generate(client,request,fact=stage=='facts')
@@ -407,12 +415,36 @@ class Engine:
                 diagnostics=client.last_diagnostics,automatic_retries=0))
             client.api_key=None;key=None
 
+    def _call_audit(self,run,request,stage):
+        """Recover one truncated review per phase; never accept partial JSON.
+
+        A valid adverse review, refusal, missing finish reason or transport
+        failure is not an output-length recovery. All original evidence and
+        the full review scope remain in the retry, with a separate trace.
+        """
+        from cfm_id_llm.providers.base import ProviderError
+        try:
+            return self.call(run,request,stage)
+        except ProviderError as exc:
+            if exc.code!='INCOMPLETE_COMPLETION' or exc.diagnostics.get('finish_reason')!='length':
+                raise
+            scope=run.review_kind or stage
+            if scope in run.automatic_audit_length_retries:raise
+            run.automatic_audit_length_retries.add(scope)
+            self.save(run,stage+'_length_recovery',dict(scope=scope,
+                reason='OUTPUT_TRUNCATED',attempts=1,scientific_approval=False,
+                retry_stage=stage+'_length_retry'))
+            retry=deepcopy(request)
+            retry['system_prompt']+='\n上次复核回复因输出长度中断，未被采用。本次仍核查全部原文和字段；仅输出合同要求的JSON，理由简短，不逐句复述材料。普通findings只列错误、待澄清及必答字段；assessments仍须逐项完整回答。不得为缩短输出遗漏异常、范围或来源。'
+            self.event(run,'REVIEWING_READING','复核回复未写完整，后台正在重新核对；无需重新提交或补充条件。')
+            return self.call(run,retry,stage+'_length_retry')
+
     def _set_review(self,run,kind,sheets):
         run.review_kind=kind;run.review_sheets=deepcopy(sheets)
         run.review_templates={name:pending(sheet,run.authority) for name,sheet in sheets.items()}
         self.event(run,'REVIEW_REQUIRED',{'query':'核对模型读到的问题与原文','source':'核对事实和实际引用',
             'notes':'处理模型提出的缺项或备注','information':'核对总体信息的来源范围',
-            'science':'确认识别目标与本研究采用的科学条件','changes':'核对复查回答的全部变化','data':'核对数据与估计目标的对应'}[kind])
+            'science':'确认识别目标与本研究采用的科学条件','dag_source':'后台核对因果图、变量与原文来源','changes':'核对复查回答的全部变化'}[kind])
 
     def _select(self,run,qid):
         if qid not in [q['query_id'] for q in run.queries]:raise ValueError('UNKNOWN_QUERY')
@@ -542,12 +574,40 @@ class Engine:
             # audit that already-final result again merely because the former
             # query worksheet is still present.
             if run.result is not None:return
+            if run.review_kind=='dag_source':
+                from . import dag_reading_review as dag_audit
+                self.event(run,'REVIEWING_READING','正在核对变量、因果关系和资料来源')
+                request,fields,sources=dag_audit.request(run)
+                number=1+sum(k.startswith('dag_reading_audit_') and k.endswith('_request') for k in run.artifacts)
+                stage=f'dag_reading_audit_{number}'
+                raw=self._call_audit(run,request,stage)
+                try:
+                    answer=audit.check_focused(raw,fields,sources)
+                except ValueError as exc:
+                    if str(exc)=='READING_AUDIT_PERMISSION_INVALID' or run.automatic_audit_repairs>=1:raise
+                    run.automatic_audit_repairs+=1
+                    repair=deepcopy(request);body=json.loads(repair['user_prompt'])
+                    body['audit_contract_feedback']=dict(code=str(exc),previous_response=raw,
+                        instruction='原候选和原文未变。请按原output_schema完整核对，每项恰好一次，不得因格式修复默认通过或批准科学条件。')
+                    repair['user_prompt']=json.dumps(body,ensure_ascii=False)
+                    answer=audit.check_focused(self._call_audit(run,repair,stage+'_format_retry'),fields,sources)
+                self.save(run,stage+'_validated',answer)
+                if answer['verdict']=='PASS':
+                    run.dag_fact_audit=dag_audit.accept(run,answer)
+                    self.save(run,'dag_fact_audit',run.dag_fact_audit)
+                    self._plan(run);continue
+                if answer['verdict']=='READING_ERROR':
+                    if dag_audit.reread(self,run,answer):continue
+                    run.error=dict(code='READING_REVIEW_DISAGREEMENT',message='DAG facts do not match their sources after bounded recovery.')
+                    self.event(run,'STOPPED','系统对因果关系或材料的解释仍有分歧，尚未进入识别；无需为模型错误补条件。');return
+                run.user_question=dict(kind='NEEDS_CLARIFICATION',items=answer['issues'],message='请补充以下信息。')
+                self.event(run,'REVIEW_REQUIRED','请说明原材料中尚未确定的内容');return
             if run.review_kind=='notes':
                 self.event(run,'REVIEWING_READING','正在检查尚未明确的说明')
                 request,fields,sources=note_review.request(run)
                 number=1+sum(k.startswith('note_audit_') and k.endswith('_request') for k in run.artifacts)
                 stage=f'note_audit_{number}'
-                answer=note_review.check(run,self.call(run,request,stage),fields,sources)
+                answer=note_review.check(run,self._call_audit(run,request,stage),fields,sources)
                 self.save(run,stage+'_validated',answer)
                 if answer['reading_errors']:
                     # Keep a located model error distinct from missing material.
@@ -574,7 +634,7 @@ class Engine:
             request,fields,sources=audit.request(run)
             number=1+sum(k.startswith('reading_audit_') and k.endswith('_request') for k in run.artifacts)
             stage=f'reading_audit_{number}'
-            raw=self.call(run,request,stage)
+            raw=self._call_audit(run,request,stage)
             try:
                 answer=audit.check(raw,fields,sources,require_current=True)
             except ValueError as exc:
@@ -591,18 +651,21 @@ class Engine:
                 repair['user_prompt']=json.dumps(body,ensure_ascii=False)
                 self.event(run,'REVIEWING_READING','后台复核的回复格式有误，正在进行一次格式复查；业务材料保持不变')
                 stage=f'reading_audit_{number+1}'
-                answer=audit.check(self.call(run,repair,stage),fields,sources,require_current=True)
+                answer=audit.check(self._call_audit(run,repair,stage),fields,sources,require_current=True)
             self.save(run,stage+'_validated',answer)
-            focus_scope = 'query' if run.review_kind == 'query' else 'source'
+            prior=run.artifacts.get('target_reread_prior',{})
+            changed_query=('intake_candidate' in prior and prior['intake_candidate']!=(plain(run.intake) or {}).get('candidate'))
+            focus_scope = ('query_reread' if changed_query else 'query') if run.review_kind == 'query' else 'source'
             if answer['verdict']=='READING_ERROR' and focus_scope not in run.automatic_focused_stages:
                 focused,disputed=audit.focused_request(request,fields,answer)
-                # Query and fact audits inspect different candidates. Each gets
-                # at most one follow-up, including failures; rereads do not reset it.
+                # A0 has at most one reread; its replacement is a new candidate.
+                # Each query version gets one source-bound follow-up, including
+                # failures. Repeating an audit of the same version cannot reset it.
                 run.automatic_focused_stages.add(focus_scope)
                 focus_stage = 'focused_audit' if not run.artifacts.get('focused_audit_completed') else 'focused_audit_'+focus_scope
                 self.save(run,focus_stage+'_completed',dict(started=True,scope=focus_scope,fields=list(disputed)))
                 self.event(run,'REVIEWING_READING','正在检查有冲突的读取结果')
-                followup=audit.check_focused(self.call(run,focused,focus_stage),disputed,sources)
+                followup=audit.check_focused(self._call_audit(run,focused,focus_stage),disputed,sources)
                 self.save(run,focus_stage+'_validated',followup)
                 answer=audit.reconcile(answer,followup,disputed)
                 self.save(run,'reconciled_reading_audit',answer)
@@ -654,6 +717,24 @@ class Engine:
         if kind=='query':
             result=business_field_review.submit(run.intake,run.query_id,records['query'],authority=run.authority)
             if result['state']!='READY_TO_READ':
+                self.save(run,'query_gate_result',result)
+                if (run.automatic_review and result.get('reason_code')=='COMBINED_OR_AMBIGUOUS_GRAPH_REPRESENTATIONS'
+                        and 'graph_conflict_check' not in run.artifacts):
+                    from . import automatic_review as audit
+                    request,fields,sources=audit.graph_conflict_request(run)
+                    # Consume the bounded check before calling, including failures.
+                    self.save(run,'graph_conflict_check',dict(started=True,fields=list(fields),scientific_approval=False))
+                    self.event(run,'REVIEWING_READING','两类关系说明可能混在一起，后台正在对照原文核对。')
+                    checked=audit.check_focused(self._call_audit(run,request,'graph_conflict_audit'),fields,sources)
+                    self.save(run,'graph_conflict_validated',checked)
+                    if checked['verdict']=='READING_ERROR':
+                        if self._reread_business(run,dict(source_located_issues=checked['issues'])):return
+                    elif checked['verdict']=='NEEDS_CLARIFICATION':
+                        run.user_question=dict(kind='NEEDS_CLARIFICATION',items=checked['issues'],message='请说明材料中的关系。')
+                        run.result=dict(state='NEEDS_INPUT',reason_code='SOURCE_CONFIRMED_GRAPH_AMBIGUITY',
+                            clarification_questions=[i['question'] for i in checked['issues']],backend_called=False,
+                            independent_replay=False,mathematical_claim=None)
+                        self.event(run,'REVIEW_REQUIRED','请补充关系说明');return
                 run.result=result;self.save(run,'query_gate_result',result)
                 self.event(run,'STOPPED','当前读取尚不能进入后续方法；停止原因已保留，不重复调用后台复核。');return
             run.result=None
@@ -679,6 +760,12 @@ class Engine:
             self._plan(run)
         elif kind=='science':
             confirmed_summary=summarize(run)
+            from . import dag_reading_review as dag_audit
+            if dag_audit.connected(run):
+                if not dag_audit.valid(run):raise ValueError('CURRENT_DAG_SOURCE_REVIEW_REQUIRED')
+                # Only user scientific records arrive here; source/plan records
+                # come from the bound, successful independent background audit.
+                records={**deepcopy(run.dag_fact_audit['records']),**records}
             run.reviews['plan_review']=records['plan']
             run.reviews['native_reviews']={row['method']:{name:records[row['method']+'.'+name]
                 for name in ('reading_review','science_review')} for row in run.plan['methods']
@@ -696,6 +783,20 @@ class Engine:
     def _plan(self,run):
         run.result=None
         run.plan=project.inspect_methods(run.intake,run.query_id,**run.submission);self.save(run,'plan',run.plan)
+        # A table may also cite definitions in another document. Ask for the
+        # existing source-role review; never delete citations or approve roles.
+        if (run.plan.get('reason_code')=='EXACT_SINGLE_SOURCE_TABLE_REQUIRED'
+                and 'information_evidence_review' not in run.submission):
+            from cfm_id.network_information_evidence import prepare
+            try:
+                sheet=prepare(run.entry,run.submission['candidate'])
+            except ValueError:
+                pass  # Unsupported evidence shapes keep their original stop.
+            else:
+                run.plan=dict(run.plan,state='REVIEW_REQUIRED',
+                    reason_code='INFORMATION_SOURCE_ROLES_REQUIRED',
+                    information_evidence_worksheet=sheet)
+                self.save(run,'plan',run.plan)
         for key,kind in [('reading_change_worksheet','changes'),('source_review_worksheet','source')]:
             if key in run.plan:
                 self._set_review(run,kind,{kind:run.plan[key]});return
@@ -705,10 +806,15 @@ class Engine:
             self._set_review(run,'notes',notes);return
         if 'information_evidence_worksheet' in run.plan:
             self._set_review(run,'information',{'information':run.plan['information_evidence_worksheet']});return
+        from . import dag_reading_review as dag_audit
+        automatic_dag=dag_audit.connected(run)
+        if automatic_dag and not dag_audit.valid(run):
+            self._set_review(run,'dag_source',{'dag_source':dag_audit.worksheet(run)});return
         if 'plan_worksheet' in run.plan:
-            sheets={'plan':run.plan['plan_worksheet']}
+            sheets={} if automatic_dag else {'plan':run.plan['plan_worksheet']}
             for row in run.plan.get('methods',[]):
                 for field,name in [('reading_worksheet','reading_review'),('science_worksheet','science_review')]:
+                    if automatic_dag and field=='reading_worksheet':continue
                     if field in row:sheets[row['method']+'.'+name]=row[field]
             self._set_review(run,'science',sheets);return
         run.result=run.plan;run.review_kind=None;run.review_sheets={};run.review_templates={}
@@ -768,6 +874,13 @@ class Engine:
         sheet=intake_stop.prepare(run,inspected)
         if sheet is None:return False
         self.save(run,'intake_stop_worksheet',sheet)
+        feedback=intake_stop.contract_reread_feedback(sheet,inspected)
+        if feedback is not None:
+            self.save(run,'intake_contract_feedback',feedback)
+            if not self._reread_business(run,feedback):
+                run.result=dict(inspected,reason_code='TARGET_FIELD_CONTRACT_CONFLICT_AFTER_REREAD')
+                self.event(run,'STOPPED','重读后，目标类别与比较方式仍不一致；尚未进入识别，无需为此补充研究条件。')
+            return True
         self.event(run,'REVIEWING_READING','正在核对原文是否包含所需信息')
         answer=self.call(run,intake_stop.request(sheet),'intake_stop_audit')
         revised,checked,questions=intake_stop.apply(run,sheet,answer)
@@ -787,7 +900,8 @@ class Engine:
     def _reread_business(self,run,feedback):
         if 'target_reread_prior' in run.artifacts:
             return False
-        self.save(run,'target_reread_prior',dict(feedback=feedback,artifacts=deepcopy(run.artifacts)))
+        self.save(run,'target_reread_prior',dict(feedback=feedback,
+            intake_candidate=deepcopy((plain(run.intake) or {}).get('candidate')),artifacts=deepcopy(run.artifacts)))
         run.query_id=run.query_review=run.entry=run.submission=run.plan=run.result=None
         run.review_kind=None
         run.review_sheets={};run.review_templates={};run.reviews={}

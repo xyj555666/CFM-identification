@@ -15,6 +15,41 @@ def prepare(run, inspected):
         return None  # Invalid format or an unregistered stop keeps its original rejection.
 
 
+def contract_reread_feedback(sheet, inspected):
+    """Point a bounded reread at a wire conflict, not deferred fact-audit gaps.
+
+    UNEXPECTED_COMPARATOR has no source-gap disposition: the existing gate has
+    rejected the combination of target kind and comparator. No model verdict
+    is needed to restate that deterministic failure. This never repairs a
+    target, drops an operand, or admits the candidate to scientific review.
+    Ambiguous/missing coordinates continue through the source-bound stop audit.
+    """
+    items = sheet.get('items', {})
+    if not items or any(item.get('missing_coordinates') or
+            'MATERIAL_GAP' in item.get('allowed_dispositions', []) or
+            not item.get('wire_issues') or
+            any(issue.get('code') != 'UNEXPECTED_COMPARATOR' for issue in item['wire_issues'])
+            for item in items.values()):
+        return None
+    from cfm_id_llm.target_first_reading import NETWORK_TARGET_DEFINITIONS
+    queries = {q['query_id']: q for q in inspected['report']['draft']['queries']}
+    rows = []
+    for qid, item in items.items():
+        q = queries[qid]
+        semantics = q.get('semantics', {})
+        rows.append(dict(query_id=qid, target_kind=q['target']['kind'],
+            business_goal=deepcopy(q['business_goal']),
+            first_arrangement=deepcopy(semantics.get('intervention')),
+            second_arrangement=deepcopy(semantics.get('comparator')),
+            comparison_order=deepcopy((inspected.get('wire_gate', {}).get('evidence_slots', {})
+                                      .get('comparison_orders', {})).get(qid)),
+            blocking_diagnostics=deepcopy(item['wire_issues']),
+            target_definition=NETWORK_TARGET_DEFINITIONS.get(q['target']['kind'])))
+    return dict(code='TARGET_FIELD_CONTRACT_CONFLICT', queries=rows,
+                candidate_is_not_source_evidence=True, candidate_modified=False,
+                scientific_approval=False)
+
+
 def request(sheet):
     rows={qid:dict(type='object',additionalProperties=False,
         required=['disposition','reason','source_ids'],properties=dict(
