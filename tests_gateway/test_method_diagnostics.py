@@ -3,7 +3,7 @@ from copy import deepcopy
 import pytest
 from cfm_id import business_dispatch as dispatch, method_diagnostics as diagnostic, method_requirements as requirements, project
 from cfm_id.network_policy_dispatch import R1B,R2,R2_SCIENCE_DECISIONS
-from cfm_id.network_bounded_dispatch import METHOD
+from cfm_id.network_bounded_dispatch import METHOD, COUNT_METHOD, FINITE_METHOD
 from examples.network_dispatch_reference import setup,approval_records
 from examples.network_bounded_dispatch_reference import setup as bounded
 
@@ -103,7 +103,9 @@ def test_condition_lists_come_from_worksheets_not_labels_and_unknown_reason_is_n
     s,e,o,p=setup(design='D1');v=diagnostic.describe(p);rows=by_method(v)
     for row in p['methods']:
         assert [r['key'] for r in rows[row['method']]['science_review']['conditions']]==list(row['science_worksheet']['decisions'])
-    assert {r['method'] for r in requirements.catalog()}=={R1B,R2,METHOD}
+    methods = [r['method'] for r in requirements.catalog()]
+    assert set(methods)=={R1B,R2,METHOD,COUNT_METHOD,FINITE_METHOD}
+    assert len(methods)==len(set(methods))
     assert requirements.reason('FUTURE_REASON')['next_action']=='INSPECT_NATIVE_DIAGNOSTIC'
     upstream=project.diagnose_methods(s,'q1',**dict(o,request_sha256='0'*64))
     assert not upstream['methods'] and upstream['source_plan_state']=='CHECK_BLOCKED'

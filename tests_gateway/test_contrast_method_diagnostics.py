@@ -70,9 +70,13 @@ def test_readonly_public_entry_uses_registry_and_actual_pair_reviews(monkeypatch
     view = project.diagnose_methods(s, 'q1', **o, **review_options(a))
     assert not view['backend_called'] and not view['independent_replay']
     assert (p, a, o) == before
-    assert {r['method'] for r in requirements.catalog(contrast.FAMILY)} == {
-        contrast.POINT_METHOD,contrast.R2_METHOD,contrast.BOUNDED_METHOD,contrast.mean_order.METHOD}
-    assert len(requirements.catalog()) == 3  # Historical default remains the mean family.
+    methods = [r['method'] for r in requirements.catalog(contrast.FAMILY)]
+    assert set(methods) == {
+        contrast.POINT_METHOD,contrast.R2_METHOD,contrast.BOUNDED_METHOD,
+        contrast.COUNT_METHOD,contrast.FINITE_METHOD,contrast.mean_order.METHOD}
+    assert len(methods) == len(set(methods))
+    # The default stays the mean family as that family's capabilities expand.
+    assert requirements.catalog() == requirements.catalog('NETWORK_FIXED_POLICY_FACTS')
     assert set(contrast.PAIR_DECISIONS) <= {r['key'] for r in view['common_review']['conditions']}
     method = rows(view)[contrast.POINT_METHOD]
     assert set(contrast.PAIR_DECISIONS) <= {r['key'] for r in method['reading_review']['conditions']}

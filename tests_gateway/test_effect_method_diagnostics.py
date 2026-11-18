@@ -63,7 +63,7 @@ def test_readonly_entry_and_saved_evidence_never_invoke_a_backend(monkeypatch):
     assert not pending['backend_called'] and method(pending)['mathematical_applicability'] == 'NOT_CHECKED'
     assert method(archived)['certificate']['state'] == 'REPLAY_REPORTED'
     assert [r['method'] for r in requirements.catalog(effects.FAMILY)] == [effects.METHOD]
-    assert len(requirements.catalog()) == 3
+    assert requirements.catalog() == requirements.catalog('NETWORK_FIXED_POLICY_FACTS')
     assert 'mean_sufficiency_all_assignments_and_weighted_nodes' not in p['methods'][0]['science_worksheet']['decisions']
     assert not dispatch.execute(s, 'q1', **o, **dict(a, plan_review=archived))['backend_called']
 

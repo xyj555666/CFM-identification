@@ -67,7 +67,7 @@ def test_readonly_entry_uses_existing_gates_without_reexecuting_or_granting_perm
     assert method(archived)['certificate']['state'] == 'REPLAY_REPORTED'
     assert not dispatch.execute(s,'q1',**o,**dict(a,plan_review=archived))['backend_called']
     assert [x['method'] for x in requirements.catalog(r3.FAMILY)] == list(r3.METHODS)
-    assert len(requirements.catalog()) == 3
+    assert requirements.catalog() == requirements.catalog('NETWORK_FIXED_POLICY_FACTS')
     assert pending['observational']['target_conditioning_review'] is None  # Legacy fixture remains supported.
 
 
